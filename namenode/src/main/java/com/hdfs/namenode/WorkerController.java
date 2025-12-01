@@ -10,7 +10,7 @@ public class WorkerController {
     @PostMapping("/register")
     public void registerWorker(@RequestBody WorkerRegisterRequest request) {
         // هنا يستقبل الماستر البيانات
-        System.out.println("🔔 New Registration Request Received!");
+        System.out.println("🔔 Yeni Kayıt Talebi Alındı!");
         System.out.println("   - Port: " + request.getPort());
         System.out.println("   - Path: " + request.getStoragePath());
 
