@@ -177,10 +177,5 @@ datanode.heartbeat.interval=5000
 
 ---
 
-## 👨‍💻 المطور
-
-يحيى حمشو — Yahya Hamsho  
-البريد الإلكتروني: your.email@example.com  
-GitHub: https://github.com/YahyaHamsho
 
 ```
