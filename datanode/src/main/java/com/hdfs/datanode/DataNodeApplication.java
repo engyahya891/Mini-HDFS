@@ -16,7 +16,7 @@ public class DataNodeApplication implements CommandLineRunner {
     // هذه الدالة تعمل تلقائياً فور تشغيل السيرفر
     @Override
     public void run(String... args) throws Exception {
-        System.out.println("tanana");
+        System.out.println("İşçi başladı! Master'a kaydolmaya çalışılıyor...");
 
         // 1. تجهيز البيانات (باستخدام الكلاس المشترك)
         WorkerRegisterRequest request = new WorkerRegisterRequest();
