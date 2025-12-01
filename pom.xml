@@ -14,9 +14,9 @@
     <artifactId>mini-hdfs</artifactId> <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
-    <module>common</module>
-    <module>namenode</module>
-    <module>datanode</module>
+        <module>common</module>
+        <module>namenode</module>
+        <module>datanode</module>
         <module>client</module>
     </modules>
 
