@@ -40,12 +40,52 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
+    // هنا سنكتب كود الاتصال بالماستر لاحقاً
+    // الخطوة القادمة:
+    // 1. سؤال الماستر: أين أرفع هذا الملف؟
+    // 2. تقطيع الملف.
+    // 3. الإرسال للووركر.
+    // نحتاج هذه المكتبة لإرسال الطلبات
+
+    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+
     private void uploadFile(String path) {
-        System.out.println("TODO: Ana sonucuya yükleme isteği gönderilyor : " + path);
-        // هنا سنكتب كود الاتصال بالماستر لاحقاً
-        // الخطوة القادمة:
-        // 1. سؤال الماستر: أين أرفع هذا الملف؟
-        // 2. تقطيع الملف.
-        // 3. الإرسال للووركر.
+        // 1. استخراج اسم الملف وحجمه (لإرساله للماستر)
+        java.io.File file = new java.io.File(path);
+        if (!file.exists()) {
+            System.out.println("❌ Hata: Dosya bulunamadı! (Error: File not found)");
+            return;
+        }
+
+        String fileName = file.getName();
+        long fileSize = file.length();
+
+        System.out.println("🔄 Master sunucusuna bağlanılıyor... (Connecting to Master...)");
+
+        // 2. تجهيز الطلب
+        // نستخدم الكلاسات المشتركة التي أنشأناها قبل قليل
+        com.hdfs.common.protocol.ClientUploadRequest request =
+                new com.hdfs.common.protocol.ClientUploadRequest(fileName, fileSize);
+
+        try {
+            // 3. إرسال الطلب إلى الماستر وانتظار الرد
+            String masterUrl = "http://localhost:8080/api/file/upload";
+            com.hdfs.common.protocol.ClientUploadResponse response =
+                    restTemplate.postForObject(masterUrl, request, com.hdfs.common.protocol.ClientUploadResponse.class);
+
+            // 4. معالجة رد الماستر
+            if (response != null && response.isSuccess()) {
+                System.out.println("✅ Master onayı alındı! (Master approved)");
+                System.out.println("📍 Hedef Worker: " + response.getWorkerUrl());
+
+                // هنا ستكون المرحلة القادمة: إرسال الملف الفعلي للووركر
+                System.out.println("⏳ Dosya worker'a gönderilecek (Henüz yapılmadı)...");
+            } else {
+                System.out.println("⛔ Master isteği reddetti. (Master denied request)");
+            }
+
+        } catch (Exception e) {
+            System.out.println("❌ Bağlantı hatası: " + e.getMessage());
+        }
     }
 }
