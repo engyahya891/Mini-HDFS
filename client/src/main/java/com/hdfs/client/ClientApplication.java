@@ -23,7 +23,7 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, exit");
+        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> , exit");
 
         while (true) {
             System.out.print("> ");
