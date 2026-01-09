@@ -4,6 +4,12 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import java.util.Scanner;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 @SpringBootApplication
 public class ClientApplication implements CommandLineRunner {
@@ -50,42 +56,55 @@ public class ClientApplication implements CommandLineRunner {
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
     private void uploadFile(String path) {
-        // 1. استخراج اسم الملف وحجمه (لإرساله للماستر)
         java.io.File file = new java.io.File(path);
         if (!file.exists()) {
             System.out.println("❌ Hata: Dosya bulunamadı! (Error: File not found)");
             return;
         }
 
-        String fileName = file.getName();
-        long fileSize = file.length();
-
         System.out.println("🔄 Master sunucusuna bağlanılıyor... (Connecting to Master...)");
 
-        // 2. تجهيز الطلب
-        // نستخدم الكلاسات المشتركة التي أنشأناها قبل قليل
+        // 1. طلب الإذن من الماستر (كما فعلنا سابقاً)
         com.hdfs.common.protocol.ClientUploadRequest request =
-                new com.hdfs.common.protocol.ClientUploadRequest(fileName, fileSize);
+                new com.hdfs.common.protocol.ClientUploadRequest(file.getName(), file.length());
 
         try {
-            // 3. إرسال الطلب إلى الماستر وانتظار الرد
             String masterUrl = "http://localhost:8080/api/file/upload";
             com.hdfs.common.protocol.ClientUploadResponse response =
                     restTemplate.postForObject(masterUrl, request, com.hdfs.common.protocol.ClientUploadResponse.class);
 
-            // 4. معالجة رد الماستر
             if (response != null && response.isSuccess()) {
                 System.out.println("✅ Master onayı alındı! (Master approved)");
-                System.out.println("📍 Hedef Worker: " + response.getWorkerUrl());
+                String workerUrl = response.getWorkerUrl(); // سيأتي الرابط http://localhost:8081
 
-                // هنا ستكون المرحلة القادمة: إرسال الملف الفعلي للووركر
-                System.out.println("⏳ Dosya worker'a gönderilecek (Henüz yapılmadı)...");
+                // 2. البدء بإرسال الملف للووركر
+                System.out.println("🚀 Dosya Worker'a gönderiliyor... (Sending file to Worker...)");
+
+                // تجهيز الملف للإرسال
+                org.springframework.core.io.FileSystemResource fileResource = new org.springframework.core.io.FileSystemResource(file);
+
+                // تجهيز الهيدر والبيانات (Multipart Request)
+                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+                headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
+
+                org.springframework.util.MultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
+                body.add("file", fileResource);
+
+                org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> requestEntity =
+                        new org.springframework.http.HttpEntity<>(body, headers);
+
+                // الإرسال الفعلي
+                String uploadUrl = workerUrl + "/api/block/upload";
+                String result = restTemplate.postForObject(uploadUrl, requestEntity, String.class);
+
+                System.out.println("🏁 Sonuç: " + result); // طباعة النتيجة النهائية
+
             } else {
-                System.out.println("⛔ Master isteği reddetti. (Master denied request)");
+                System.out.println("⛔ Master isteği reddetti.");
             }
 
         } catch (Exception e) {
-            System.out.println("❌ Bağlantı hatası: " + e.getMessage());
+            System.out.println("❌ Hata oluştu: " + e.getMessage());
         }
     }
 }
