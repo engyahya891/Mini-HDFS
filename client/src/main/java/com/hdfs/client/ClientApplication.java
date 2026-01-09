@@ -40,7 +40,14 @@ public class ClientApplication implements CommandLineRunner {
                 }
                 String filePath = parts[1];
                 uploadFile(filePath);
-            } else {
+            } else if ("download".equalsIgnoreCase(command)) {
+                if (parts.length < 2) {
+                    System.out.println("⚠️ Lütfen dosya adını girin (Please enter filename).");
+                    continue;
+                }
+                String filename = parts[1];
+                downloadFile(filename); // سنقوم بإنشاء هذه الدالة الآن
+            }else {
                 System.out.println("Bilinmeyen Komut.");
             }
         }
@@ -105,6 +112,38 @@ public class ClientApplication implements CommandLineRunner {
 
         } catch (Exception e) {
             System.out.println("❌ Hata oluştu: " + e.getMessage());
+        }
+    }
+
+
+    private void downloadFile(String filename) {
+        System.out.println("🔄 Master'a soruluyor... (Asking Master...)");
+
+        try {
+            // 1. نسأل الماستر: أين الملف؟ (سيجلب المعلومة من الداتا بيس الجديدة)
+            String masterUrl = "http://localhost:8080/api/file/locate/" + filename;
+            String workerUrl = restTemplate.getForObject(masterUrl, String.class);
+
+            if ("NOT_FOUND".equals(workerUrl)) {
+                System.out.println("⛔ Dosya Master kayıtlarında yok! (File not found)");
+                return;
+            }
+
+            System.out.println("📍 Dosya bulundu: " + workerUrl);
+            System.out.println("⬇️ İndiriliyor... (Downloading...)");
+
+            // 2. نحمل الملف من الووركر
+            String downloadUrl = workerUrl + "/api/data/read/" + filename;
+            byte[] fileBytes = restTemplate.getForObject(downloadUrl, byte[].class);
+
+            // 3. نحفظ الملف عندنا باسم جديد
+            String savePath = "downloaded_" + filename;
+            java.nio.file.Files.write(java.nio.file.Paths.get(savePath), fileBytes);
+
+            System.out.println("🎉 İndirme başarılı! Dosya: " + savePath);
+
+        } catch (Exception e) {
+            System.out.println("❌ Hata: " + e.getMessage());
         }
     }
 }
