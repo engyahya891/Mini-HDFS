@@ -5,10 +5,11 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ebff66b1-60c9-4727-93e7-73f37054e416" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/client/src/main/java/com/hdfs/client/ClientApplication.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/client/src/main/resources/application.properties" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/common/src/main/java/com/hdfs/common/protocol/ClientUploadRequest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/namenode/src/main/java/com/hdfs/namenode/FileController.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/client/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datanode/src/main/java/com/hdfs/datanode/DataNodeApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/datanode/src/main/java/com/hdfs/datanode/DataNodeApplication.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/src/main/java/com/hdfs/client/ClientApplication.java" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main/java/com/hdfs/client/ClientApplication.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,21 +26,21 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "munahamh"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;munahamh&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/engyahya891/Mini-HDFS.git",
-    "accountId": "7506f166-5c80-4b50-aed4-ef3ff8d0877f"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/engyahya891/Mini-HDFS.git&quot;,
+    &quot;accountId&quot;: &quot;ed01bb06-50d4-43fe-abeb-c93d412ac139&quot;
   }
-}]]></component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 1
-}]]></component>
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
   <component name="ProjectId" id="36Fw7zQ0vhjx2RUNuVI5jm9oToF" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -47,12 +48,18 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Application.ClientApplication.executor": "Run",
     "Application.DataNodeApplication.executor": "Run",
     "Application.NameNodeApplication.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "main",
     "kotlin-language-version-configured": "true",
-    "onboarding.tips.debug.path": "C:/Users/monah/IdeaProjects/Mini-HDFS/src/main/java/org/example/Main.java"
+    "onboarding.tips.debug.path": "C:/Users/monah/IdeaProjects/Mini-HDFS/src/main/java/org/example/Main.java",
+    "project.structure.last.edited": "Modules",
+    "project.structure.proportion": "0.15",
+    "project.structure.side.proportion": "0.2"
   }
 }]]></component>
   <component name="RunManager">
@@ -68,6 +75,37 @@
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
+    </configuration>
+    <configuration default="true" type="Babashka" factoryName="BabashkaLocalRepl" activateToolWindowBeforeRun="false">
+      <setting name="displayName" value="" />
+      <setting name="bbPath" value="" />
+      <setting name="parameters" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <setting name="workingDir" value="" />
+      <setting name="focusEditor" value="false" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="ClojureREPL" factoryName="Local" activateToolWindowBeforeRun="false">
+      <option name="configVersion" value="1" />
+      <option name="options" />
+      <option name="profiles" />
+      <method v="2" />
+    </configuration>
+    <configuration default="true" type="ClojureREPL" factoryName="Remote" activateToolWindowBeforeRun="false">
+      <setting name="displayName" value="" />
+      <setting name="host" value="" />
+      <setting name="port" value="0" />
+      <setting name="replType" value="SOCKET" />
+      <setting name="configType" value="SPECIFY" />
+      <setting name="replPortFileType" value="STANDARD" />
+      <setting name="customPortFile" value="" />
+      <setting name="fixLineNumbers" value="false" />
+      <setting name="useHeartbeat" value="true" />
+      <setting name="focusEditor" value="false" />
+      <setting name="urlFile" value="" />
+      <method v="2" />
     </configuration>
     <recent_temporary>
       <list>

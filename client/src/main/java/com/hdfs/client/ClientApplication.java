@@ -16,8 +16,8 @@ public class ClientApplication implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
-        System.out.println("Welcome to Mini-HDFS Client!");
-        System.out.println("Available commands: upload <file_path>, exit");
+        System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
+        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, exit");
 
         while (true) {
             System.out.print("> ");
@@ -29,19 +29,19 @@ public class ClientApplication implements CommandLineRunner {
                 break;
             } else if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
-                    System.out.println("Error: Please specify file path.");
+                    System.out.println("Hata : Lütfen bir Dosya yolu girin !!");
                     continue;
                 }
                 String filePath = parts[1];
                 uploadFile(filePath);
             } else {
-                System.out.println("Unknown command.");
+                System.out.println("Bilinmeyen Komut.");
             }
         }
     }
 
     private void uploadFile(String path) {
-        System.out.println("TODO: Sending request to Master to upload: " + path);
+        System.out.println("TODO: Ana sonucuya yükleme isteği gönderilyor : " + path);
         // هنا سنكتب كود الاتصال بالماستر لاحقاً
         // الخطوة القادمة:
         // 1. سؤال الماستر: أين أرفع هذا الملف؟
