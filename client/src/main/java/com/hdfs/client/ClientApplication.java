@@ -94,7 +94,7 @@ public class ClientApplication implements CommandLineRunner {
                         new org.springframework.http.HttpEntity<>(body, headers);
 
                 // الإرسال الفعلي
-                String uploadUrl = workerUrl + "/api/block/upload";
+                String uploadUrl = workerUrl + "/api/data/write";
                 String result = restTemplate.postForObject(uploadUrl, requestEntity, String.class);
 
                 System.out.println("🏁 Sonuç: " + result); // طباعة النتيجة النهائية
