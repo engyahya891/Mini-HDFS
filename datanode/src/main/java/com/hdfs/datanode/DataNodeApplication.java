@@ -25,7 +25,7 @@ public class DataNodeApplication implements CommandLineRunner {
 
         // 2. إرسال الطلب إلى الماستر
         RestTemplate restTemplate = new RestTemplate();
-        String masterUrl = "http://localhost:8080/api/worker/register";
+        String masterUrl = "http://192.168.1.7:8080/api/worker/register";
 
         try {
             // إرسال POST Request

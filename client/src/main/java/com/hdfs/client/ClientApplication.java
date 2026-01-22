@@ -23,7 +23,7 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> , exit");
+        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> ,delete <dosya_adı> ,exit");
 
         while (true) {
             System.out.print("> ");
@@ -47,7 +47,14 @@ public class ClientApplication implements CommandLineRunner {
                 }
                 String filename = parts[1];
                 downloadFile(filename); // سنقوم بإنشاء هذه الدالة الآن
-            }else {
+            } else if ("delete".equalsIgnoreCase(command)) {
+            if (parts.length < 2) {
+                System.out.println("⚠️ Please specify filename to delete.");
+                continue;
+            }
+            String filename = parts[1];
+            deleteFileRequest(filename);
+        }else {
                 System.out.println("Bilinmeyen Komut.");
             }
         }
@@ -144,6 +151,26 @@ public class ClientApplication implements CommandLineRunner {
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
+        }
+    }
+    private void deleteFileRequest(String filename) {
+        System.out.println("🗑️ Deleting " + filename + "...");
+        try {
+            // إرسال طلب الحذف للماستر
+            // لاحظ أننا نستخدم restTemplate.delete() لكنها لا ترجع قيمة نصية بسهولة
+            // لذلك سنستخدم exchange لاستقبال الرد
+
+            String masterUrl = "http://localhost:8080/api/file/delete/" + filename;
+
+            // إرسال طلب DELETE
+            restTemplate.delete(masterUrl);
+
+            // (في الـ RestTemplate البسيط، دالة delete void،
+            // إذا لم يحدث Exception فهذا يعني النجاح)
+            System.out.println("✅ File deleted successfully!");
+
+        } catch (Exception e) {
+            System.out.println("❌ Failed to delete: " + e.getMessage());
         }
     }
 }
