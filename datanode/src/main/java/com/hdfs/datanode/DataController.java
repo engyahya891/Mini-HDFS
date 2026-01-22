@@ -69,4 +69,20 @@ public class DataController {
             return ResponseEntity.notFound().build();
         }
     }
+    @DeleteMapping("/delete/{filename}") // نستخدم DELETE بدلاً من GET أو POST
+    public ResponseEntity<String> deleteFile(@PathVariable String filename) {
+        try {
+            Path filePath = Paths.get(STORAGE_DIR + filename);
+            boolean deleted = java.nio.file.Files.deleteIfExists(filePath); // يحذف الملف إذا وجد
+
+            if (deleted) {
+                System.out.println("🗑️ Dosya silindi: " + filename);
+                return ResponseEntity.ok("File deleted successfully");
+            } else {
+                return ResponseEntity.status(404).body("File not found on disk");
+            }
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error deleting file: " + e.getMessage());
+        }
+    }
 }

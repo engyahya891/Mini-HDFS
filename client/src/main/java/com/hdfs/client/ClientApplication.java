@@ -23,7 +23,7 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> ,delete <dosya_adı> ,exit");
+        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> , delete <dosya_adı> , exit");
 
         while (true) {
             System.out.print("> ");
@@ -39,25 +39,54 @@ public class ClientApplication implements CommandLineRunner {
             String command = parts[0];
 
             if ("exit".equalsIgnoreCase(command)) {
+                // ترجمة: مع السلامة! جاري الخروج...
+                System.out.println("Güle güle! Çıkış yapılıyor...");
                 break;
-            } else if ("upload".equalsIgnoreCase(command)) {
+            }
+
+            if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
-                    System.out.println("Hata : Lütfen bir Dosya yolu girin !!");
+                    // ترجمة: يرجى تحديد مسار الملف
+                    System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
                     continue;
                 }
-                String filePath = parts[1];
+
+                // تنظيف المسار وحذف العلامات الزائدة
+                String filePath = removeQuotes(parts[1]);
                 uploadFile(filePath);
+
             } else if ("download".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
-                    System.out.println("⚠️ Lütfen dosya adını girin (Please enter filename).");
+                    // ترجمة: يرجى تحديد اسم الملف
+                    System.out.println("⚠️ Lütfen dosya adını belirtin.");
                     continue;
                 }
-                String filename = parts[1];
-                downloadFile(filename); // سنقوم بإنشاء هذه الدالة الآن
-            }else {
-                System.out.println("Bilinmeyen Komut.");
+
+                String filename = removeQuotes(parts[1]);
+                downloadFile(filename);
+
+            } else if ("delete".equalsIgnoreCase(command)) {
+            if (parts.length < 2) {
+                System.out.println("⚠️ Lütfen silinecek dosya adını belirtin.");
+                continue;
+            }
+            String filename = parts[1];
+            deleteFileRequest(filename); // سننشئ هذه الدالة بالأسفل
+        }
+            else {
+                // ترجمة: أمر غير معروف
+                System.out.println("Bilinmeyen komut. (Yardım: upload, download, delete, exit)");
             }
         }
+    }
+    // دالة مساعدة لحذف علامات التنصيص " إذا وضعها المستخدم
+    // مثال: تحول "C:\My Folder\File.txt" إلى C:\My Folder\File.txt
+    private String removeQuotes(String path) {
+        path = path.trim();
+        if (path.startsWith("\"") && path.endsWith("\"")) {
+            return path.substring(1, path.length() - 1);
+        }
+        return path;
     }
 
     // هنا سنكتب كود الاتصال بالماستر لاحقاً
@@ -151,6 +180,26 @@ public class ClientApplication implements CommandLineRunner {
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
+        }
+    }
+    private void deleteFileRequest(String filename) {
+        System.out.println("🗑️ Deleting " + filename + "...");
+        try {
+            // إرسال طلب الحذف للماستر
+            // لاحظ أننا نستخدم restTemplate.delete() لكنها لا ترجع قيمة نصية بسهولة
+            // لذلك سنستخدم exchange لاستقبال الرد
+
+            String masterUrl = "http://localhost:8080/api/file/delete/" + filename;
+
+            // إرسال طلب DELETE
+            restTemplate.delete(masterUrl);
+
+            // (في الـ RestTemplate البسيط، دالة delete void،
+            // إذا لم يحدث Exception فهذا يعني النجاح)
+            System.out.println("✅ File deleted successfully!");
+
+        } catch (Exception e) {
+            System.out.println("❌ Failed to delete: " + e.getMessage());
         }
     }
 }
