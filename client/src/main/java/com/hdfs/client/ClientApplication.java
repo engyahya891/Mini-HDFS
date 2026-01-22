@@ -67,7 +67,7 @@ public class ClientApplication implements CommandLineRunner {
 
             } else {
                 // ترجمة: أمر غير معروف
-                System.out.println("❌ Bilinmeyen komut. (Yardım: upload, download, exit)");
+                System.out.println("Bilinmeyen komut. (Yardım: upload, download, exit)");
             }
         }
     }
