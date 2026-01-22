@@ -155,8 +155,18 @@ public class ClientApplication implements CommandLineRunner {
     private void downloadFile(String filename) {
         System.out.println("🔄 Master'a soruluyor... (Asking Master...)");
 
+        // 1️⃣ حدد المجلد الذي تريد الحفظ فيه (مثلاً على الـ C مباشرة)
+        // ملاحظة: نستخدم \\ لأن العلامة الواحدة \ تعتبر رمزاً خاصاً في الجافا
+        String targetFolder = "C:\\HDFS_Downloads\\";
+
         try {
-            // 1. نسأل الماستر: أين الملف؟ (سيجلب المعلومة من الداتا بيس الجديدة)
+            // التأكد من أن المجلد موجود، وإذا لم يكن موجوداً نقوم بإنشائه
+            java.io.File directory = new java.io.File(targetFolder);
+            if (!directory.exists()) {
+                directory.mkdirs(); // ينشئ المجلد
+            }
+
+            // --- نفس كودك القديم للاتصال بالماستر ---
             String masterUrl = "http://localhost:8080/api/file/locate/" + filename;
             String workerUrl = restTemplate.getForObject(masterUrl, String.class);
 
@@ -168,15 +178,19 @@ public class ClientApplication implements CommandLineRunner {
             System.out.println("📍 Dosya bulundu: " + workerUrl);
             System.out.println("⬇️ İndiriliyor... (Downloading...)");
 
-            // 2. نحمل الملف من الووركر
+            // --- نفس كودك القديم للتحميل من الووركر ---
             String downloadUrl = workerUrl + "/api/data/read/" + filename;
             byte[] fileBytes = restTemplate.getForObject(downloadUrl, byte[].class);
 
-            // 3. نحفظ الملف عندنا باسم جديد
-            String savePath = "downloaded_" + filename;
-            java.nio.file.Files.write(java.nio.file.Paths.get(savePath), fileBytes);
+            // 2️⃣ التغيير هنا: دمج مسار المجلد مع اسم الملف
+            // استخدمنا الاسم الأصلي (filename) بدلاً من "downloaded_" ليكون أرتب
+            java.nio.file.Path fullPath = java.nio.file.Paths.get(targetFolder + filename);
 
-            System.out.println("🎉 İndirme başarılı! Dosya: " + savePath);
+            // حفظ الملف في المسار الجديد
+            java.nio.file.Files.write(fullPath, fileBytes);
+
+            // طباعة مكان الحفظ الجديد للمستخدم
+            System.out.println("🎉 İndirme başarılı! Dosya şuraya kaydedildi: " + fullPath.toAbsolutePath());
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
