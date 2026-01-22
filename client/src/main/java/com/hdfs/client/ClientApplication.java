@@ -27,8 +27,15 @@ public class ClientApplication implements CommandLineRunner {
 
         while (true) {
             System.out.print("> ");
-            String input = scanner.nextLine();
-            String[] parts = input.split(" ");
+            String commandLine = scanner.nextLine().trim(); // نقرأ السطر كاملاً
+
+            if (commandLine.isEmpty()) continue;
+
+            // تقسيم النص إلى قسمين فقط:
+            // 1. الأمر (upload/download)
+            // 2. كل ما تبقى من السطر (المسار مهما كان فيه فراغات)
+            String[] parts = commandLine.split("\\s+", 2);
+
             String command = parts[0];
 
             if ("exit".equalsIgnoreCase(command)) {
@@ -47,14 +54,7 @@ public class ClientApplication implements CommandLineRunner {
                 }
                 String filename = parts[1];
                 downloadFile(filename); // سنقوم بإنشاء هذه الدالة الآن
-            } else if ("delete".equalsIgnoreCase(command)) {
-            if (parts.length < 2) {
-                System.out.println("⚠️ Please specify filename to delete.");
-                continue;
-            }
-            String filename = parts[1];
-            deleteFileRequest(filename);
-        }else {
+            }else {
                 System.out.println("Bilinmeyen Komut.");
             }
         }
@@ -151,26 +151,6 @@ public class ClientApplication implements CommandLineRunner {
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
-        }
-    }
-    private void deleteFileRequest(String filename) {
-        System.out.println("🗑️ Deleting " + filename + "...");
-        try {
-            // إرسال طلب الحذف للماستر
-            // لاحظ أننا نستخدم restTemplate.delete() لكنها لا ترجع قيمة نصية بسهولة
-            // لذلك سنستخدم exchange لاستقبال الرد
-
-            String masterUrl = "http://localhost:8080/api/file/delete/" + filename;
-
-            // إرسال طلب DELETE
-            restTemplate.delete(masterUrl);
-
-            // (في الـ RestTemplate البسيط، دالة delete void،
-            // إذا لم يحدث Exception فهذا يعني النجاح)
-            System.out.println("✅ File deleted successfully!");
-
-        } catch (Exception e) {
-            System.out.println("❌ Failed to delete: " + e.getMessage());
         }
     }
 }
