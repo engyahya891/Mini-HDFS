@@ -11,6 +11,10 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.ResponseEntity;
 import java.net.MalformedURLException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @RequestMapping("/api/data")
@@ -46,20 +50,23 @@ public class DataController {
     @GetMapping("/read/{filename}")
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
         try {
-            // تحديد مسار الملف على الهارد ديسك
             Path filePath = Paths.get(STORAGE_DIR + filename);
             Resource resource = new UrlResource(filePath.toUri());
 
-            // التأكد من أن الملف موجود ويمكن قراءته
             if (resource.exists() || resource.isReadable()) {
-                System.out.println("📤 Dosya gönderiliyor: " + filename); // (Log: Sending file)
+                System.out.println("📤 Dosya gönderiliyor: " + filename);
+
+                // 🟢 هذا هو التعديل: تشفير الاسم ليقبل العربية
+                String encodedFilename = URLEncoder.encode(resource.getFilename(), StandardCharsets.UTF_8.toString());
+
                 return ResponseEntity.ok()
-                        .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
+                        // نستخدم الاسم المشفر (encodedFilename) هنا
+                        .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + encodedFilename + "\"")
                         .body(resource);
             } else {
                 throw new RuntimeException("Dosya bulunamadı!");
             }
-        } catch (MalformedURLException e) {
+        } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }

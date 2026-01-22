@@ -27,30 +27,58 @@ public class ClientApplication implements CommandLineRunner {
 
         while (true) {
             System.out.print("> ");
-            String input = scanner.nextLine();
-            String[] parts = input.split(" ");
+            String commandLine = scanner.nextLine().trim(); // نقرأ السطر كاملاً
+
+            if (commandLine.isEmpty()) continue;
+
+            // تقسيم النص إلى قسمين فقط:
+            // 1. الأمر (upload/download)
+            // 2. كل ما تبقى من السطر (المسار مهما كان فيه فراغات)
+            String[] parts = commandLine.split("\\s+", 2);
+
             String command = parts[0];
 
             if ("exit".equalsIgnoreCase(command)) {
+                // ترجمة: مع السلامة! جاري الخروج...
+                System.out.println("Güle güle! Çıkış yapılıyor...");
                 break;
-            } else if ("upload".equalsIgnoreCase(command)) {
+            }
+
+            if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
-                    System.out.println("Hata : Lütfen bir Dosya yolu girin !!");
+                    // ترجمة: يرجى تحديد مسار الملف
+                    System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
                     continue;
                 }
-                String filePath = parts[1];
+
+                // تنظيف المسار وحذف العلامات الزائدة
+                String filePath = removeQuotes(parts[1]);
                 uploadFile(filePath);
+
             } else if ("download".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
-                    System.out.println("⚠️ Lütfen dosya adını girin (Please enter filename).");
+                    // ترجمة: يرجى تحديد اسم الملف
+                    System.out.println("⚠️ Lütfen dosya adını belirtin.");
                     continue;
                 }
-                String filename = parts[1];
-                downloadFile(filename); // سنقوم بإنشاء هذه الدالة الآن
-            }else {
-                System.out.println("Bilinmeyen Komut.");
+
+                String filename = removeQuotes(parts[1]);
+                downloadFile(filename);
+
+            } else {
+                // ترجمة: أمر غير معروف
+                System.out.println("❌ Bilinmeyen komut. (Yardım: upload, download, exit)");
             }
         }
+    }
+    // دالة مساعدة لحذف علامات التنصيص " إذا وضعها المستخدم
+    // مثال: تحول "C:\My Folder\File.txt" إلى C:\My Folder\File.txt
+    private String removeQuotes(String path) {
+        path = path.trim();
+        if (path.startsWith("\"") && path.endsWith("\"")) {
+            return path.substring(1, path.length() - 1);
+        }
+        return path;
     }
 
     // هنا سنكتب كود الاتصال بالماستر لاحقاً
