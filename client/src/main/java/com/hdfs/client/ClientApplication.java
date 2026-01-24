@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 
 @SpringBootApplication
 public class ClientApplication implements CommandLineRunner {
@@ -107,26 +108,26 @@ public class ClientApplication implements CommandLineRunner {
 
         System.out.println("🔄 Master sunucusuna bağlanılıyor... (Connecting to Master...)");
 
-        // 1. طلب الإذن من الماستر (كما فعلنا سابقاً)
+        // 1. طلب الإذن من الماستر
         com.hdfs.common.protocol.ClientUploadRequest request =
                 new com.hdfs.common.protocol.ClientUploadRequest(file.getName(), file.length());
 
         try {
             String masterUrl = "http://localhost:8080/api/file/upload";
+
+            // محاولة الاتصال بالماستر
             com.hdfs.common.protocol.ClientUploadResponse response =
                     restTemplate.postForObject(masterUrl, request, com.hdfs.common.protocol.ClientUploadResponse.class);
 
+            // إذا وصلنا إلى هنا، فهذا يعني أن الماستر وافق (Status 200 OK)
             if (response != null && response.isSuccess()) {
                 System.out.println("✅ Master onayı alındı! (Master approved)");
-                String workerUrl = response.getWorkerUrl(); // سيأتي الرابط http://localhost:8081
+                String workerUrl = response.getWorkerUrl();
 
                 // 2. البدء بإرسال الملف للووركر
                 System.out.println("🚀 Dosya Worker'a gönderiliyor... (Sending file to Worker...)");
 
-                // تجهيز الملف للإرسال
                 org.springframework.core.io.FileSystemResource fileResource = new org.springframework.core.io.FileSystemResource(file);
-
-                // تجهيز الهيدر والبيانات (Multipart Request)
                 org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
                 headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
 
@@ -136,17 +137,23 @@ public class ClientApplication implements CommandLineRunner {
                 org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> requestEntity =
                         new org.springframework.http.HttpEntity<>(body, headers);
 
-                // الإرسال الفعلي
                 String uploadUrl = workerUrl + "/api/data/write";
                 String result = restTemplate.postForObject(uploadUrl, requestEntity, String.class);
 
-                System.out.println("🏁 Sonuç: " + result); // طباعة النتيجة النهائية
+                System.out.println("🏁 Sonuç: " + result);
 
             } else {
                 System.out.println("⛔ Master isteği reddetti.");
             }
 
+        } catch (HttpClientErrorException.Conflict e) {
+            // 🟢 التعديل الجديد هنا!
+            // هذه المنطقة تعمل فقط إذا رد الماستر بـ 409 (الملف موجود)
+            System.out.println("⚠️ UYARI: Bu dosya zaten mevcut! (File already exists)");
+            System.out.println("   (Yükleme iptal edildi / Upload skipped)");
+
         } catch (Exception e) {
+            // هذا يلتقط أي خطأ آخر (مثل انقطاع الاتصال)
             System.out.println("❌ Hata oluştu: " + e.getMessage());
         }
     }
