@@ -23,7 +23,7 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> , delete <dosya_adı> , exit");
+        System.out.println("Kullanılabilir komutlar : upload <dosya_yolu>, download <dosya_adı> , delete <dosya_adı> ,clear , exit");
 
         while (true) {
             System.out.print("> ");
@@ -72,10 +72,14 @@ public class ClientApplication implements CommandLineRunner {
             }
             String filename = parts[1];
             deleteFileRequest(filename); // سننشئ هذه الدالة بالأسفل
+        } else if ("clear".equalsIgnoreCase(command)) {
+            clearScreen();
+            System.out.println("✨ Console Cleared! ✨"); // رسالة تأكيد
+
         }
             else {
                 // ترجمة: أمر غير معروف
-                System.out.println("Bilinmeyen komut. (Yardım: upload, download, delete, exit)");
+                System.out.println("Bilinmeyen komut. (Yardım: upload, download, delete, clear , exit)");
             }
         }
     }
@@ -214,6 +218,24 @@ public class ClientApplication implements CommandLineRunner {
 
         } catch (Exception e) {
             System.out.println("❌ Failed to delete: " + e.getMessage());
+        }
+    }
+    // دالة لتنظيف الشاشة
+    private void clearScreen() {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+
+            if (os.contains("win")) {
+                // إذا كان ويندوز، نستخدم ProcessBuilder لتشغيل أمر cls
+                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
+            } else {
+                // إذا كان لينكس أو ماك، نستخدم أكواد ANSI
+                System.out.print("\033[H\033[2J");
+                System.out.flush();
+            }
+        } catch (Exception e) {
+            // في حالة الفشل (مثلاً داخل IntelliJ)، نطبع أسطر فارغة كحل بديل
+            for (int i = 0; i < 50; i++) System.out.println();
         }
     }
 }
