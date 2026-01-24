@@ -1,6 +1,8 @@
 package com.hdfs.namenode;
 
 import org.springframework.http.ResponseEntity;
+import com.hdfs.namenode.model.WorkerNode;
+import com.hdfs.namenode.repository.WorkerRepository;
 import com.hdfs.common.protocol.ClientUploadRequest;
 import com.hdfs.common.protocol.ClientUploadResponse;
 import com.hdfs.namenode.model.FileMetadata;
@@ -8,8 +10,9 @@ import com.hdfs.namenode.repository.FileRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-
+import java.util.List;
 import java.util.Optional;
+
 
 @RestController
 @RequestMapping("/api/file")
@@ -18,44 +21,65 @@ public class FileController {
     @Autowired
     private FileRepository fileRepository;
 
+    // 🟢 1. نحتاج هذا المتغير للوصول لجدول الووركرز
+    @Autowired
+    private WorkerRepository workerRepository;
 
+    // 🟢 2. متغير بسيط لتطبيق خوارزمية الدور (Round Robin)
+    private int currentWorkerIndex = 0;
 
-    // دالة الرفع (Upload) المعدلة
+    // --- دالة الرفع المعدلة (Upload) ---
     @PostMapping("/upload")
     public ResponseEntity<ClientUploadResponse> handleUploadRequest(@RequestBody ClientUploadRequest request) {
 
         System.out.println("📥 Dosya yükleme isteği: " + request.getFilename());
 
-        // 1️⃣ الخطوة الجديدة: التحقق من وجود الملف
-        // نبحث عنه في القاعدة، إذا وجدناه نوقف العملية فوراً
+        // أ) التحقق من التكرار (كما هو، ممتاز)
         if (fileRepository.findByFilename(request.getFilename()) != null) {
-            System.out.println("⚠️ Yinelenen dosya tespit edildi: " + request.getFilename());
-            // نرجع كود 409 Conflict
+            System.out.println("⚠️ Yinelenen dosya tespit edildi (Duplicate): " + request.getFilename());
             return ResponseEntity.status(409).build();
         }
 
-        // 2️⃣ إذا لم يكن موجوداً، نكمل العمل الطبيعي
-        String targetWorkerUrl = "http://localhost:8081";
+        List<WorkerNode> workers = workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive) // شرط: يجب أن يكون نشطاً
+                .toList();
 
-        // نستخدم الكلاس الخاص بك FileMetadata كما هو
+        if (workers.isEmpty()) {
+            System.out.println("❌ Kritik Hata: Hiçbir aktif worker yok!");
+            return ResponseEntity.status(500).build();
+        }
+
+        // خوارزمية الدور (Round Robin)
+        // نأخذ الرقم الحالي % عدد السيرفرات (لضمان أننا لا نخرج عن حدود القائمة)
+        WorkerNode selectedWorker = workers.get(currentWorkerIndex % workers.size());
+
+        // نزيد العداد للمرة القادمة
+        currentWorkerIndex++;
+
+        String targetWorkerUrl = selectedWorker.getUrl();
+        System.out.println("🎯 Seçilen Worker: " + targetWorkerUrl); // طباعة لمعرفة من تم اختياره
+
+        // ج) الحفظ في القاعدة
         FileMetadata metadata = new FileMetadata(request.getFilename(), targetWorkerUrl, request.getFileSize());
         fileRepository.save(metadata);
 
-        // نرجع كود 200 OK مع الاستجابة
+        // د) الرد على العميل
         return ResponseEntity.ok(new ClientUploadResponse(true, targetWorkerUrl));
     }
 
-    // دالة البحث
+    // --- دالة البحث (Locate) ---
+    // (لم تتغير كثيراً، لكن تأكدنا أنها ترجع الرابط المحفوظ)
     @GetMapping("/locate/{filename}")
-    public String locateFile(@PathVariable String filename) {
+    public ResponseEntity<String> locateFile(@PathVariable String filename) {
         System.out.println("🔎 Searching for file: " + filename);
 
-        Optional<FileMetadata> fileData = fileRepository.findById(filename);
+        // نستخدم findByFilename لأنها الأدق
+        FileMetadata fileData = fileRepository.findByFilename(filename);
 
-        if (fileData.isPresent()) {
-            return fileData.get().getWorkerUrl();
+        if (fileData != null) {
+            return ResponseEntity.ok(fileData.getWorkerUrl());
         } else {
-            return "NOT_FOUND";
+            return ResponseEntity.status(404).body("NOT_FOUND");
         }
     }
 
