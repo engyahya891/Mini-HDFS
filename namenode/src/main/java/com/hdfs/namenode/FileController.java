@@ -8,6 +8,7 @@ import com.hdfs.namenode.repository.FileRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+
 import java.util.Optional;
 
 @RestController
@@ -17,18 +18,31 @@ public class FileController {
     @Autowired
     private FileRepository fileRepository;
 
-    // دالة الرفع (Upload)
+
+
+    // دالة الرفع (Upload) المعدلة
     @PostMapping("/upload")
-    public ClientUploadResponse handleUploadRequest(@RequestBody ClientUploadRequest request) {
+    public ResponseEntity<ClientUploadResponse> handleUploadRequest(@RequestBody ClientUploadRequest request) {
+
         System.out.println("📥 Dosya yükleme isteği: " + request.getFilename());
 
+        // 1️⃣ الخطوة الجديدة: التحقق من وجود الملف
+        // نبحث عنه في القاعدة، إذا وجدناه نوقف العملية فوراً
+        if (fileRepository.findByFilename(request.getFilename()) != null) {
+            System.out.println("⚠️ Yinelenen dosya tespit edildi: " + request.getFilename());
+            // نرجع كود 409 Conflict
+            return ResponseEntity.status(409).build();
+        }
+
+        // 2️⃣ إذا لم يكن موجوداً، نكمل العمل الطبيعي
         String targetWorkerUrl = "http://localhost:8081";
 
-
+        // نستخدم الكلاس الخاص بك FileMetadata كما هو
         FileMetadata metadata = new FileMetadata(request.getFilename(), targetWorkerUrl, request.getFileSize());
         fileRepository.save(metadata);
 
-        return new ClientUploadResponse(true, targetWorkerUrl);
+        // نرجع كود 200 OK مع الاستجابة
+        return ResponseEntity.ok(new ClientUploadResponse(true, targetWorkerUrl));
     }
 
     // دالة البحث

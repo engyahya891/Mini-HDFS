@@ -1,4 +1,3 @@
-
 package com.hdfs.namenode.repository;
 
 import com.hdfs.namenode.model.FileMetadata;
@@ -7,5 +6,8 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface FileRepository extends JpaRepository<FileMetadata, String> {
-    // هذا الكلاس يبقى فارغاً، Spring Boot سيتكفل بالباقي!
+
+    // 🟢 هذا هو السطر الناقص!
+    // نحن نخبر Spring: "قم بإنشاء استعلام يبحث في عمود filename"
+    FileMetadata findByFilename(String filename);
 }
