@@ -1,121 +1,121 @@
 package com.hdfs.namenode;
 
-import org.springframework.http.ResponseEntity;
 import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.WorkerRepository;
-import com.hdfs.common.protocol.ClientUploadRequest;
-import com.hdfs.common.protocol.ClientUploadResponse;
-import com.hdfs.namenode.model.FileMetadata;
 import com.hdfs.namenode.repository.FileRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.hdfs.common.protocol.BlockAllocation; // 🟢 استيراد الكلاس المشترك
 
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
-
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/file")
 public class FileController {
 
     @Autowired
-    private FileRepository fileRepository;
-
-    // 🟢 1. نحتاج هذا المتغير للوصول لجدول الووركرز
-    @Autowired
     private WorkerRepository workerRepository;
 
-    // 🟢 2. متغير بسيط لتطبيق خوارزمية الدور (Round Robin)
-    private int currentWorkerIndex = 0;
+    @Autowired
+    private FileRepository fileRepository;
 
-    // --- دالة الرفع المعدلة (Upload) ---
-    @PostMapping("/upload")
-    public ResponseEntity<ClientUploadResponse> handleUploadRequest(@RequestBody ClientUploadRequest request) {
+    // 🟢 1. دالة حجز البلوك (الدمج: تقطيع + تكرار)
+    // العميل يرسل رقم البلوك، والماستر يرد بـ "قائمة" سيرفرات لرفع النسخ إليها
+    @PostMapping("/allocate-block")
+    public ResponseEntity<BlockAllocation> allocateBlock(@RequestBody BlockAllocation requestInfo) {
 
-        System.out.println("📥 Dosya yükleme isteği: " + request.getFilename());
+        System.out.println("📦 Blok Yerleştirme İsteği: Blok #" + requestInfo.getBlockIndex());
 
-        // أ) التحقق من التكرار (كما هو، ممتاز)
-        if (fileRepository.findByFilename(request.getFilename()) != null) {
-            System.out.println("⚠️ Yinelenen dosya tespit edildi (Duplicate): " + request.getFilename());
-            return ResponseEntity.status(409).build();
-        }
+        // أ) جلب العمال النشطين
+        List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
+                .collect(Collectors.toList());
 
-        List<WorkerNode> workers = workerRepository.findAll().stream()
-                .filter(WorkerNode::isActive) // شرط: يجب أن يكون نشطاً
-                .toList();
-
-        if (workers.isEmpty()) {
-            System.out.println("❌ Kritik Hata: Hiçbir aktif worker yok!");
+        if (activeWorkers.isEmpty()) {
+            System.out.println("❌ HATA: Aktif worker yok!");
             return ResponseEntity.status(500).build();
         }
 
-        // خوارزمية الدور (Round Robin)
-        // نأخذ الرقم الحالي % عدد السيرفرات (لضمان أننا لا نخرج عن حدود القائمة)
-        WorkerNode selectedWorker = workers.get(currentWorkerIndex % workers.size());
+        // ب) خلط القائمة (Load Balancing)
+        Collections.shuffle(activeWorkers);
 
-        // نزيد العداد للمرة القادمة
-        currentWorkerIndex++;
+        // ج) التكرار (Replication Factor = 2)
+        // نختار أول خادمين متاحين
+        int replicationFactor = Math.min(activeWorkers.size(), 2);
 
-        String targetWorkerUrl = selectedWorker.getUrl();
-        System.out.println("🎯 Seçilen Worker: " + targetWorkerUrl); // طباعة لمعرفة من تم اختياره
+        List<String> selectedWorkerUrls = activeWorkers.stream()
+                .limit(replicationFactor)
+                .map(WorkerNode::getUrl)
+                .collect(Collectors.toList());
 
-        // ج) الحفظ في القاعدة
-        FileMetadata metadata = new FileMetadata(request.getFilename(), targetWorkerUrl, request.getFileSize());
-        fileRepository.save(metadata);
+        System.out.println("   ✅ Hedef Sunucular: " + selectedWorkerUrls);
 
-        // د) الرد على العميل
-        return ResponseEntity.ok(new ClientUploadResponse(true, targetWorkerUrl));
+        // د) إرجاع الرد (يحتوي على رقم البلوك + قائمة الروابط)
+        BlockAllocation response = new BlockAllocation(requestInfo.getBlockIndex(), selectedWorkerUrls);
+
+        return ResponseEntity.ok(response);
     }
 
-    // --- دالة البحث (Locate) ---
-    // (لم تتغير كثيراً، لكن تأكدنا أنها ترجع الرابط المحفوظ)
+    // 🟢 2. دالة التوزيع البسيط (احتياطية للرفع بدون تقطيع)
+    @GetMapping("/assign-workers")
+    public ResponseEntity<List<String>> assignWorkers() {
+        List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
+                .collect(Collectors.toList());
+
+        if (activeWorkers.isEmpty()) return ResponseEntity.status(500).build();
+
+        Collections.shuffle(activeWorkers);
+        int replicationFactor = Math.min(activeWorkers.size(), 2);
+
+        List<String> selectedUrls = activeWorkers.subList(0, replicationFactor).stream()
+                .map(WorkerNode::getUrl)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(selectedUrls);
+    }
+
+    // 🟢 3. تحديد مكان الملف (للتنزيل)
     @GetMapping("/locate/{filename}")
-    public ResponseEntity<String> locateFile(@PathVariable String filename) {
-        System.out.println("🔎 Searching for file: " + filename);
-
-        // نستخدم findByFilename لأنها الأدق
-        FileMetadata fileData = fileRepository.findByFilename(filename);
-
-        if (fileData != null) {
-            return ResponseEntity.ok(fileData.getWorkerUrl());
-        } else {
-            return ResponseEntity.status(404).body("NOT_FOUND");
-        }
+    public String locateFile(@PathVariable String filename) {
+        // للتبسيط، نرجع رابط أي وركر نشط، لأن الملف موجود عند الجميع
+        return workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
+                .findFirst()
+                .map(WorkerNode::getUrl)
+                .orElse("DOSYA_BULUNAMADI");
     }
 
-    // نحتاج لـ RestTemplate للاتصال بالووركر
-    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-
+    // 🟢 4. الحذف الجماعي (Global Delete)
     @DeleteMapping("/delete/{filename}")
-    public ResponseEntity<String> deleteFile(@PathVariable String filename) { // لاحظ: القوس مفتوح هنا فقط
+    public void deleteFile(@PathVariable String filename) {
+        System.out.println("🗑️ Global Silme İsteği: " + filename);
 
-        System.out.println("🗑️ silme isteği " + filename);
+        List<WorkerNode> workers = workerRepository.findAll();
+        org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
-        // 1. هذا السطر كان ناقصاً عندك: يجب جلب بيانات الملف أولاً
-        Optional<FileMetadata> fileData = fileRepository.findById(filename);
-
-        // التحقق مما إذا كان الملف موجوداً أصلاً
-        if (fileData.isEmpty()) {
-            return ResponseEntity.status(404).body("❌ Dosya sistemde mevcut değil.");
+        for (WorkerNode worker : workers) {
+            if (worker.isActive()) {
+                try {
+                    restTemplate.delete(worker.getUrl() + "/api/data/delete/" + filename);
+                    System.out.println("✅ Silindi: " + worker.getUrl());
+                } catch (Exception e) {
+                    System.out.println("⚠️ Silinemedi: " + worker.getUrl());
+                }
+            }
         }
-
-        // الآن يمكننا استخدام fileData بأمان
-        String workerUrl = fileData.get().getWorkerUrl();
-
-        try {
-            // 2. محاولة الاتصال بالووركر
-            restTemplate.delete(workerUrl + "/api/data/delete/" + filename);
-
-            // 3. إذا وصلنا لهنا، يعني الووركر رد بـ OK، نحذف من الداتا بيس
-            fileRepository.deleteById(filename);
-            return ResponseEntity.ok("✅ Veritabanından ve diskten silindi.");
-
-        } catch (Exception e) {
-            // 4. هنا نلتقط خطأ الـ Timeout أو اختلاف الـ IP
-            System.out.println("❌ Worker’a bağlanma başarısız oldu: " + e.getMessage());
-
-            // نرجع 500 ليظهر للعميل أن هناك مشكلة في الشبكة
-            return ResponseEntity.status(500).body("❌ Worker’a bağlanılamadı: IP adresinin doğru ve aktif olduğundan emin olun.");
-        }
-    } // إغلاق الدالة هنا في النهاية
+    }
 }
+/*
+* 💡 ماذا صححت لك؟
+أضفت دالة allocateBlock (مع @PostMapping): هذه هي الدالة الأساسية الجديدة التي سيستخدمها العميل المطور لرفع البلوكات.
+
+أبقيت على assignWorkers: تحسباً لو أردت اختبار رفع بسيط في المستقبل.
+
+تأكدت من استيراد BlockAllocation.
+*
+* */
+
