@@ -1,8 +1,12 @@
 package com.hdfs.client;
 
+import com.hdfs.common.protocol.ClientUploadRequest;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.Scanner;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpEntity;
@@ -103,62 +107,96 @@ public class ClientApplication implements CommandLineRunner {
 
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
-    private void uploadFile(String path) {
-        java.io.File file = new java.io.File(path);
+    // تعريف حجم البلوك (يجب أن يطابق الماستر = 64 ميجا)
+    private static final int BLOCK_SIZE = 64 * 1024 * 1024;
+
+    private void uploadFile(String filePath) {
+        File file = new File(filePath);
         if (!file.exists()) {
-            System.out.println("❌ Hata: Dosya bulunamadı! (Error: File not found)");
+            System.out.println("❌ الملف غير موجود!");
             return;
         }
 
-        System.out.println("🔄 Master sunucusuna bağlanılıyor... (Connecting to Master...)");
-
-        // 1. طلب الإذن من الماستر
-        com.hdfs.common.protocol.ClientUploadRequest request =
-                new com.hdfs.common.protocol.ClientUploadRequest(file.getName(), file.length());
+        System.out.println("🔄 الاتصال بالماستر للحصول على خطة التوزيع...");
 
         try {
+            // 1. إرسال طلب للماستر والحصول على "الخطة" (قائمة البلوكات)
             String masterUrl = "http://localhost:8080/api/file/upload";
+            ClientUploadRequest request = new ClientUploadRequest(file.getName(), file.length());
 
-            // محاولة الاتصال بالماستر
-            com.hdfs.common.protocol.ClientUploadResponse response =
-                    restTemplate.postForObject(masterUrl, request, com.hdfs.common.protocol.ClientUploadResponse.class);
+            // استقبال القائمة (Array) ثم تحويلها
+            BlockAllocation[] responseArray = restTemplate.postForObject(masterUrl, request, BlockAllocation[].class);
 
-            // إذا وصلنا إلى هنا، فهذا يعني أن الماستر وافق (Status 200 OK)
-            if (response != null && response.isSuccess()) {
-                System.out.println("✅ Master onayı alındı! (Master approved)");
-                String workerUrl = response.getWorkerUrl();
-
-                // 2. البدء بإرسال الملف للووركر
-                System.out.println("🚀 Dosya Worker'a gönderiliyor... (Sending file to Worker...)");
-
-                org.springframework.core.io.FileSystemResource fileResource = new org.springframework.core.io.FileSystemResource(file);
-                org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-                headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
-
-                org.springframework.util.MultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
-                body.add("file", fileResource);
-
-                org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> requestEntity =
-                        new org.springframework.http.HttpEntity<>(body, headers);
-
-                String uploadUrl = workerUrl + "/api/data/write";
-                String result = restTemplate.postForObject(uploadUrl, requestEntity, String.class);
-
-                System.out.println("🏁 Sonuç: " + result);
-
-            } else {
-                System.out.println("⛔ Master isteği reddetti.");
+            if (responseArray == null) {
+                System.out.println("❌ فشل الحصول على خطة من الماستر.");
+                return;
             }
 
-        } catch (HttpClientErrorException.Conflict e) {
-            // 🟢 التعديل الجديد هنا!
-            // هذه المنطقة تعمل فقط إذا رد الماستر بـ 409 (الملف موجود)
-            System.out.println("⚠️ UYARI: Bu dosya zaten mevcut! (File already exists)");
-            System.out.println("   (Yükleme iptal edildi / Upload skipped)");
+            System.out.println("✅ تم استلام الخطة! عدد القطع: " + responseArray.length);
+
+            // 2. فتح الملف وبدء التقطيع 🔪
+            try (FileInputStream fis = new FileInputStream(file)) {
+                byte[] buffer = new byte[BLOCK_SIZE]; // الوعاء الذي سنغرف فيه البيانات
+                int bytesRead;
+                int currentBlockIndex = 0;
+
+                // حلقة تكرارية: اقرأ 64 ميجا في كل مرة
+                while ((bytesRead = fis.read(buffer)) != -1) {
+
+                    // الحصول على وجهة هذا البلوك من الخطة
+                    BlockAllocation allocation = responseArray[currentBlockIndex];
+                    String workerUrl = allocation.getWorkerUrl();
+
+                    System.out.println("   ⬆️ رفع القطعة #" + currentBlockIndex + " إلى: " + workerUrl);
+
+                    // تجهيز البيانات (قص البلوك الأخير إذا كان أصغر من 64 ميجا)
+                    byte[] actualData = buffer;
+                    if (bytesRead < BLOCK_SIZE) {
+                        // إذا قرأنا 10 ميجا فقط، نقص المصفوفة لتصبح 10 ميجا
+                        actualData = java.util.Arrays.copyOf(buffer, bytesRead);
+                    }
+
+                    // 3. إرسال القطعة للووركر
+                    // 💡 ملاحظة ذكية: سنسمي الملف "video.mp4_blk_0" ليحفظه الووركر بهذا الاسم
+                    String blockName = file.getName() + "_blk_" + currentBlockIndex;
+
+                    // استخدام Multipart لإرسال الملف (مثل الكود القديم لكن مع تغيير الرابط والاسم)
+                    uploadBlockToWorker(workerUrl, blockName, actualData);
+
+                    currentBlockIndex++;
+                }
+            }
+            System.out.println("🎉 تمت عملية الرفع الموزع بنجاح!");
 
         } catch (Exception e) {
-            // هذا يلتقط أي خطأ آخر (مثل انقطاع الاتصال)
-            System.out.println("❌ Hata oluştu: " + e.getMessage());
+            e.printStackTrace();
+            System.out.println("❌ خطأ أثناء الرفع: " + e.getMessage());
+        }
+    }
+
+    // دالة مساعدة لإرسال البايتات للووركر (تشبه كود الرفع القديم)
+    private void uploadBlockToWorker(String workerBaseUrl, String blockName, byte[] data) {
+        try {
+            String url = workerBaseUrl + "/api/data/upload";
+
+            // تجهيز الهيدر والملف
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
+
+            org.springframework.util.MultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
+            // نستخدم ByteArrayResource لتغليف البايتات كملف
+            body.add("file", new org.springframework.core.io.ByteArrayResource(data) {
+                @Override
+                public String getFilename() {
+                    return blockName; // هذا الاسم الذي سيحفظه الووركر
+                }
+            });
+
+            org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> requestEntity = new org.springframework.http.HttpEntity<>(body, headers);
+            restTemplate.postForEntity(url, requestEntity, String.class);
+
+        } catch (Exception e) {
+            throw new RuntimeException("فشل رفع البلوك للووركر: " + workerBaseUrl);
         }
     }
 

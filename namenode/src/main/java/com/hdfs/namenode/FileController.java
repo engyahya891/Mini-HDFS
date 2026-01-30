@@ -1,18 +1,18 @@
 package com.hdfs.namenode;
 
-import org.springframework.http.ResponseEntity;
-import com.hdfs.namenode.model.WorkerNode;
-import com.hdfs.namenode.repository.WorkerRepository;
+import com.hdfs.common.protocol.BlockAllocation;
 import com.hdfs.common.protocol.ClientUploadRequest;
-import com.hdfs.common.protocol.ClientUploadResponse;
+import com.hdfs.namenode.model.BlockMetadata;
 import com.hdfs.namenode.model.FileMetadata;
+import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.FileRepository;
+import com.hdfs.namenode.repository.WorkerRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-
 
 @RestController
 @RequestMapping("/api/file")
@@ -21,101 +21,97 @@ public class FileController {
     @Autowired
     private FileRepository fileRepository;
 
-    // 🟢 1. نحتاج هذا المتغير للوصول لجدول الووركرز
     @Autowired
     private WorkerRepository workerRepository;
 
-    // 🟢 2. متغير بسيط لتطبيق خوارزمية الدور (Round Robin)
+    // 🟢 تعريف حجم البلوك (64 ميجابايت)
+    private static final long BLOCK_SIZE = 64 * 1024 * 1024;
+
+    // متغير لتطبيق الدور (Round Robin)
     private int currentWorkerIndex = 0;
 
-    // --- دالة الرفع المعدلة (Upload) ---
+    // --- دالة الرفع المعدلة (ذكية وتقوم بالتقطيع) ---
     @PostMapping("/upload")
-    public ResponseEntity<ClientUploadResponse> handleUploadRequest(@RequestBody ClientUploadRequest request) {
+    public List<BlockAllocation> handleUploadRequest(@RequestBody ClientUploadRequest request) {
 
-        System.out.println("📥 Dosya yükleme isteği: " + request.getFilename());
+        System.out.println("📥 طلب رفع جديد (موزع): " + request.getFilename() + " | الحجم: " + request.getFileSize());
 
-        // أ) التحقق من التكرار (كما هو، ممتاز)
-        if (fileRepository.findByFilename(request.getFilename()) != null) {
-            System.out.println("⚠️ Yinelenen dosya tespit edildi (Duplicate): " + request.getFilename());
-            return ResponseEntity.status(409).build();
-        }
-
-        List<WorkerNode> workers = workerRepository.findAll().stream()
-                .filter(WorkerNode::isActive) // شرط: يجب أن يكون نشطاً
+        // 1. التحقق من وجود الووركرز النشطين
+        List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
                 .toList();
 
-        if (workers.isEmpty()) {
-            System.out.println("❌ Kritik Hata: Hiçbir aktif worker yok!");
-            return ResponseEntity.status(500).build();
+        if (activeWorkers.isEmpty()) {
+            throw new RuntimeException("❌ لا يوجد ووركرز متاحين للنظام!");
         }
 
-        // خوارزمية الدور (Round Robin)
-        // نأخذ الرقم الحالي % عدد السيرفرات (لضمان أننا لا نخرج عن حدود القائمة)
-        WorkerNode selectedWorker = workers.get(currentWorkerIndex % workers.size());
+        // 2. حساب عدد البلوكات المطلوبة
+        // معادلة السقف: (Size + BlockSize - 1) / BlockSize
+        int totalBlocks = (int) Math.ceil((double) request.getFileSize() / BLOCK_SIZE);
+        if (totalBlocks == 0) totalBlocks = 1; // للملفات الفارغة جداً
 
-        // نزيد العداد للمرة القادمة
-        currentWorkerIndex++;
+        System.out.println("🔢 سيتم تقسيم الملف إلى: " + totalBlocks + " بلوكات.");
 
-        String targetWorkerUrl = selectedWorker.getUrl();
-        System.out.println("🎯 Seçilen Worker: " + targetWorkerUrl); // طباعة لمعرفة من تم اختياره
+        // 3. إنشاء سجل الملف (لاحظ: لم نعد نمرر workerUrl هنا)
+        FileMetadata fileData = new FileMetadata(request.getFilename(), request.getFileSize());
 
-        // ج) الحفظ في القاعدة
-        FileMetadata metadata = new FileMetadata(request.getFilename(), targetWorkerUrl, request.getFileSize());
-        fileRepository.save(metadata);
+        // القائمة التي سنرسلها للعميل (خطة التوزيع)
+        List<BlockAllocation> responsePlan = new ArrayList<>();
 
-        // د) الرد على العميل
-        return ResponseEntity.ok(new ClientUploadResponse(true, targetWorkerUrl));
+        // 4. حلقة توزيع البلوكات (The Logic) 🔄
+        for (int i = 0; i < totalBlocks; i++) {
+
+            // اختيار الووركر بالدور
+            WorkerNode selectedWorker = activeWorkers.get(currentWorkerIndex % activeWorkers.size());
+            currentWorkerIndex++; // زيادة العداد للمرة القادمة
+
+            String targetWorkerUrl = selectedWorker.getUrl();
+
+            // أ) إنشاء البلوك وربطه بالملف (للداتا بيس)
+            BlockMetadata block = new BlockMetadata(i, targetWorkerUrl, fileData);
+            fileData.addBlock(block);
+
+            // ب) إضافة للخطة (للعميل)
+            responsePlan.add(new BlockAllocation(i, targetWorkerUrl));
+
+            System.out.println("   🔸 بلوك #" + i + " -> " + targetWorkerUrl);
+        }
+
+        // 5. حفظ الملف مع بلوكاته (Cascade Save)
+        // إذا كان الملف موجوداً مسبقاً، سنحذفه وننشئ جديداً (أو يمكنك منع التكرار)
+        if (fileRepository.existsById(request.getFilename())) {
+            fileRepository.deleteById(request.getFilename());
+        }
+        fileRepository.save(fileData);
+
+        // إرجاع الخطة للعميل
+        return responsePlan;
     }
 
     // --- دالة البحث (Locate) ---
-    // (لم تتغير كثيراً، لكن تأكدنا أنها ترجع الرابط المحفوظ)
+    // هذه الدالة تحتاج تحديثاً بسيطاً لترجع قائمة البلوكات، لكن مؤقتاً
+    // سنجعلها ترجع مكان "أول بلوك" فقط لكي لا نغير الكثير في وقت واحد
+    // أو يمكنك تركها كما هي إذا كنت لا تستخدمها حالياً للتحميل الموزع
     @GetMapping("/locate/{filename}")
-    public ResponseEntity<String> locateFile(@PathVariable String filename) {
-        System.out.println("🔎 Searching for file: " + filename);
+    public String locateFile(@PathVariable String filename) {
+        Optional<FileMetadata> fileData = fileRepository.findById(filename);
 
-        // نستخدم findByFilename لأنها الأدق
-        FileMetadata fileData = fileRepository.findByFilename(filename);
-
-        if (fileData != null) {
-            return ResponseEntity.ok(fileData.getWorkerUrl());
+        if (fileData.isPresent() && !fileData.get().getBlocks().isEmpty()) {
+            // نرجع رابط الووركر الذي يملك البلوك رقم 0
+            return fileData.get().getBlocks().get(0).getWorkerUrl();
         } else {
-            return ResponseEntity.status(404).body("NOT_FOUND");
+            return "NOT_FOUND";
         }
     }
 
-    // نحتاج لـ RestTemplate للاتصال بالووركر
-    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-
+    // --- دالة الحذف ---
+    // ⚠️ ملاحظة: دالة الحذف تحتاج تحديثاً كبيراً لتمسح كل البلوكات
+    // سأقوم بتعليقها مؤقتاً لتجنب الأخطاء حتى ننتهي من الرفع
+    /*
     @DeleteMapping("/delete/{filename}")
-    public ResponseEntity<String> deleteFile(@PathVariable String filename) { // لاحظ: القوس مفتوح هنا فقط
-
-        System.out.println("🗑️ silme isteği " + filename);
-
-        // 1. هذا السطر كان ناقصاً عندك: يجب جلب بيانات الملف أولاً
-        Optional<FileMetadata> fileData = fileRepository.findById(filename);
-
-        // التحقق مما إذا كان الملف موجوداً أصلاً
-        if (fileData.isEmpty()) {
-            return ResponseEntity.status(404).body("❌ Dosya sistemde mevcut değil.");
-        }
-
-        // الآن يمكننا استخدام fileData بأمان
-        String workerUrl = fileData.get().getWorkerUrl();
-
-        try {
-            // 2. محاولة الاتصال بالووركر
-            restTemplate.delete(workerUrl + "/api/data/delete/" + filename);
-
-            // 3. إذا وصلنا لهنا، يعني الووركر رد بـ OK، نحذف من الداتا بيس
-            fileRepository.deleteById(filename);
-            return ResponseEntity.ok("✅ Veritabanından ve diskten silindi.");
-
-        } catch (Exception e) {
-            // 4. هنا نلتقط خطأ الـ Timeout أو اختلاف الـ IP
-            System.out.println("❌ Worker’a bağlanma başarısız oldu: " + e.getMessage());
-
-            // نرجع 500 ليظهر للعميل أن هناك مشكلة في الشبكة
-            return ResponseEntity.status(500).body("❌ Worker’a bağlanılamadı: IP adresinin doğru ve aktif olduğundan emin olun.");
-        }
-    } // إغلاق الدالة هنا في النهاية
+    public ResponseEntity<String> deleteFile(@PathVariable String filename) {
+        // ... يحتاج لمنطق جديد لحذف البلوكات المتعددة ...
+        return ResponseEntity.ok("سيتم التحديث لاحقاً");
+    }
+    */
 }

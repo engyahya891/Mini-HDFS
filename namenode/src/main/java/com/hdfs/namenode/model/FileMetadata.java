@@ -1,29 +1,39 @@
 package com.hdfs.namenode.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "files")
 public class FileMetadata {
 
     @Id
-    private String filename; // اسم الملف (Primary Key)
+    private String filename;
 
-    private String workerUrl;
     private long fileSize;
 
-    public FileMetadata() {} // كونستركتور فارغ إجباري
+    // 🔴 حذفنا workerUrl القديم
+    // private String workerUrl;  <-- تم الحذف
 
-    public FileMetadata(String filename, String workerUrl, long fileSize) {
+    // 🟢 أضفنا قائمة البلوكات (One File -> Many Blocks)
+    @OneToMany(mappedBy = "fileMetadata", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    private List<BlockMetadata> blocks = new ArrayList<>();
+
+    public FileMetadata() {}
+
+    public FileMetadata(String filename, long fileSize) {
         this.filename = filename;
-        this.workerUrl = workerUrl;
         this.fileSize = fileSize;
+    }
+
+    // دالة مساعدة لإضافة بلوك جديد بسهولة
+    public void addBlock(BlockMetadata block) {
+        this.blocks.add(block);
     }
 
     // Getters
     public String getFilename() { return filename; }
-    public String getWorkerUrl() { return workerUrl; }
     public long getFileSize() { return fileSize; }
+    public List<BlockMetadata> getBlocks() { return blocks; }
 }
