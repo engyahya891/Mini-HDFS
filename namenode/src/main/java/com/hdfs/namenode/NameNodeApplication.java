@@ -98,27 +98,6 @@ public class NameNodeApplication {
                                 }
                                 break;
 
-                            case "add-worker":
-                                if (parts.length < 2) {
-                                    System.out.println("❌ URL gerekli! Örnek: add-worker http://192.168.1.5:8081");
-                                } else {
-                                    String newUrl = parts[1];
-                                    if (workerRepository.findByUrl(newUrl) != null) {
-                                        System.out.println("⚠️ Zaten mevcut!");
-                                    } else {
-                                        // فحص مبدئي قبل الإضافة (Validation Principle)
-                                        System.out.println("⏳ Bağlantı kontrol ediliyor...");
-                                        try {
-                                            new RestTemplate().getForEntity(newUrl + "/api/data/health", String.class);
-                                            workerRepository.save(new WorkerNode(newUrl));
-                                            System.out.println("✅ Başarılı: Worker doğrulandı ve eklendi.");
-                                        } catch (Exception e) {
-                                            System.out.println("❌ HATA: Worker'a ulaşılamadı. Lütfen önce Worker'ı çalıştırın.");
-                                        }
-                                    }
-                                }
-                                break;
-
                             case "delete-worker":
                                 if (parts.length < 2) {
                                     System.out.println("❌ URL gerekli!");

@@ -2,11 +2,12 @@ package com.hdfs.namenode;
 
 import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.WorkerRepository;
-import com.hdfs.namenode.repository.FileRepository;
+import com.hdfs.common.protocol.BlockAllocation; // ✅ تأكد أن هذا الكلاس موجود في common
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import com.hdfs.common.protocol.BlockAllocation; // 🟢 استيراد الكلاس المشترك
+import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
@@ -19,47 +20,47 @@ public class FileController {
     @Autowired
     private WorkerRepository workerRepository;
 
-    @Autowired
-    private FileRepository fileRepository;
+    private final RestTemplate restTemplate = new RestTemplate();
 
-    // 🟢 1. دالة حجز البلوك (الدمج: تقطيع + تكرار)
-    // العميل يرسل رقم البلوك، والماستر يرد بـ "قائمة" سيرفرات لرفع النسخ إليها
+    // 🟢 1. دالة حجز البلوك (لعملية الرفع مع التقطيع)
     @PostMapping("/allocate-block")
     public ResponseEntity<BlockAllocation> allocateBlock(@RequestBody BlockAllocation requestInfo) {
 
-        System.out.println("📦 Blok Yerleştirme İsteği: Blok #" + requestInfo.getBlockIndex());
+        System.out.println("📦 Master: طلب حجز مكان للبلوك رقم: " + requestInfo.getBlockIndex());
 
-        // أ) جلب العمال النشطين
+        // أ) جلب العمال النشطين فقط
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
                 .collect(Collectors.toList());
 
         if (activeWorkers.isEmpty()) {
-            System.out.println("❌ HATA: Aktif worker yok!");
+            System.out.println("❌ HATA: لا يوجد عمال نشطين (Active Workers)!");
             return ResponseEntity.status(500).build();
         }
 
-        // ب) خلط القائمة (Load Balancing)
+        // ب) خلط القائمة لتوزيع الحمل (Load Balancing)
         Collections.shuffle(activeWorkers);
 
-        // ج) التكرار (Replication Factor = 2)
-        // نختار أول خادمين متاحين
+        // ج) تحديد معامل التكرار (Replication Factor = 2)
         int replicationFactor = Math.min(activeWorkers.size(), 2);
 
+        // د) اختيار العمال
         List<String> selectedWorkerUrls = activeWorkers.stream()
                 .limit(replicationFactor)
                 .map(WorkerNode::getUrl)
                 .collect(Collectors.toList());
 
-        System.out.println("   ✅ Hedef Sunucular: " + selectedWorkerUrls);
+        System.out.println("   ✅ تم توجيه البلوك إلى: " + selectedWorkerUrls);
 
-        // د) إرجاع الرد (يحتوي على رقم البلوك + قائمة الروابط)
-        BlockAllocation response = new BlockAllocation(requestInfo.getBlockIndex(), selectedWorkerUrls);
+        // هـ) إرجاع الرد للعميل
+        BlockAllocation response = new BlockAllocation();
+        response.setBlockIndex(requestInfo.getBlockIndex());
+        response.setWorkerUrls(selectedWorkerUrls);
 
         return ResponseEntity.ok(response);
     }
 
-    // 🟢 2. دالة التوزيع البسيط (احتياطية للرفع بدون تقطيع)
+    // 🟢 2. دالة التوزيع البسيط (احتياطية)
     @GetMapping("/assign-workers")
     public ResponseEntity<List<String>> assignWorkers() {
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
@@ -81,7 +82,7 @@ public class FileController {
     // 🟢 3. تحديد مكان الملف (للتنزيل)
     @GetMapping("/locate/{filename}")
     public String locateFile(@PathVariable String filename) {
-        // للتبسيط، نرجع رابط أي وركر نشط، لأن الملف موجود عند الجميع
+        // نرجع رابط أول وركر نشط (لأننا نفترض أن الملف منسوخ عند الجميع حالياً)
         return workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
                 .findFirst()
@@ -89,33 +90,34 @@ public class FileController {
                 .orElse("DOSYA_BULUNAMADI");
     }
 
-    // 🟢 4. الحذف الجماعي (Global Delete)
+    // 🟢 4. الحذف الجماعي (Global Delete) - تم التصحيح ✅
+    // التعديل: جعلناها ترجع ResponseEntity بدلاً من void لتجنب الأخطاء في العميل
     @DeleteMapping("/delete/{filename}")
-    public void deleteFile(@PathVariable String filename) {
-        System.out.println("🗑️ Global Silme İsteği: " + filename);
+    public ResponseEntity<String> deleteFile(@PathVariable String filename) {
+        System.out.println("🗑️ Master: تعميم أمر حذف الملف -> " + filename);
 
         List<WorkerNode> workers = workerRepository.findAll();
-        org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+        int successCount = 0;
 
         for (WorkerNode worker : workers) {
+            // نرسل الأمر فقط للعمال النشطين
             if (worker.isActive()) {
                 try {
-                    restTemplate.delete(worker.getUrl() + "/api/data/delete/" + filename);
-                    System.out.println("✅ Silindi: " + worker.getUrl());
+                    String workerDeleteUrl = worker.getUrl() + "/api/data/delete/" + filename;
+                    restTemplate.delete(workerDeleteUrl);
+
+                    System.out.println("   ✅ تم الحذف من الوركر: " + worker.getUrl());
+                    successCount++;
                 } catch (Exception e) {
-                    System.out.println("⚠️ Silinemedi: " + worker.getUrl());
+                    System.out.println("   ⚠️ فشل الحذف من الوركر: " + worker.getUrl());
                 }
             }
         }
+
+        if (successCount > 0) {
+            return ResponseEntity.ok("تم حذف الملف من " + successCount + " سيرفر.");
+        } else {
+            return ResponseEntity.status(404).body("لم يتم العثور على الملف أو لا يوجد عمال نشطين.");
+        }
     }
 }
-/*
-* 💡 ماذا صححت لك؟
-أضفت دالة allocateBlock (مع @PostMapping): هذه هي الدالة الأساسية الجديدة التي سيستخدمها العميل المطور لرفع البلوكات.
-
-أبقيت على assignWorkers: تحسباً لو أردت اختبار رفع بسيط في المستقبل.
-
-تأكدت من استيراد BlockAllocation.
-*
-* */
-

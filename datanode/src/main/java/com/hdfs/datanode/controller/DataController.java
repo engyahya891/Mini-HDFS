@@ -30,7 +30,6 @@ public class DataController {
     }
 
     // 💓 1. نقطة فحص الصحة (Heartbeat / Health Check)
-    // هذه هي الإضافة الجديدة التي يطلبها الماستر للتأكد أن الوركر حي
     @GetMapping("/health")
     public ResponseEntity<String> checkHealth() {
         return ResponseEntity.ok("UP");
@@ -40,15 +39,13 @@ public class DataController {
     @PostMapping("/write")
     public String uploadFile(@RequestParam("file") MultipartFile file) {
         try {
-            String currentDir = getStorageDir(); // نستخدم المسار الديناميكي
+            String currentDir = getStorageDir();
 
-            // التأكد من وجود المجلد
             File directory = new File(currentDir);
             if (!directory.exists()) {
                 directory.mkdirs();
             }
 
-            // حفظ الملف
             Path filepath = Paths.get(currentDir + file.getOriginalFilename());
             file.transferTo(filepath);
 
@@ -71,7 +68,6 @@ public class DataController {
             if (resource.exists() || resource.isReadable()) {
                 System.out.println("📤 Dosya gönderiliyor: " + filename);
 
-                // تشفير الاسم ليدعم العربية عند التنزيل
                 String encodedFilename = URLEncoder.encode(resource.getFilename(), StandardCharsets.UTF_8.toString());
 
                 return ResponseEntity.ok()
@@ -85,21 +81,46 @@ public class DataController {
         }
     }
 
-    // 🗑️ 4. حذف الملفات (Delete)
+    // 🗑️ 4. حذف الملفات (Delete - النسخة المعدلة) 🟢
+    // التغيير هنا: بدلاً من حذف اسم الملف بالضبط، نبحث عن كل الأجزاء ونحذفها
     @DeleteMapping("/delete/{filename}")
     public ResponseEntity<String> deleteFile(@PathVariable String filename) {
-        try {
-            Path filePath = Paths.get(getStorageDir() + filename);
-            boolean deleted = java.nio.file.Files.deleteIfExists(filePath);
+        System.out.println("🗑️ Silme isteği alındı: " + filename);
 
-            if (deleted) {
-                System.out.println("🗑️ Dosya silindi: " + filename);
-                return ResponseEntity.ok("File deleted successfully");
-            } else {
-                return ResponseEntity.status(404).body("File not found on disk");
+        try {
+            // 1. الوصول للمجلد
+            File folder = new File(getStorageDir());
+
+            if (!folder.exists() || !folder.isDirectory()) {
+                return ResponseEntity.status(500).body("Depolama klasörü bulunamadı!");
             }
+
+            // 2. الفلترة الذكية: نجد الملفات التي تبدأ بالاسم المطلوب
+            // (مثلاً: video.mkv_part_1, video.mkv_part_2...)
+            File[] matchingFiles = folder.listFiles((dir, name) ->
+                    name.equals(filename) || name.startsWith(filename + "_part_")
+            );
+
+            if (matchingFiles == null || matchingFiles.length == 0) {
+                // إذا لم نجد شيئاً، نعتبر العملية ناجحة (لأن الهدف تحقق والملف غير موجود)
+                return ResponseEntity.ok("Dosya zaten yok (Already deleted).");
+            }
+
+            // 3. حذف كل الملفات التي وجدناها
+            int deletedCount = 0;
+            for (File file : matchingFiles) {
+                if (file.delete()) {
+                    System.out.println("   ✅ Silindi: " + file.getName());
+                    deletedCount++;
+                } else {
+                    System.out.println("   ❌ Silinemedi: " + file.getName());
+                }
+            }
+
+            return ResponseEntity.ok(deletedCount + " parça başarıyla silindi.");
+
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error deleting file: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Hata: " + e.getMessage());
         }
     }
 }
