@@ -7,6 +7,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestTemplate;
+import com.hdfs.namenode.repository.BlockRepository;
 
 import java.util.List;
 import java.util.Scanner;
@@ -19,15 +20,19 @@ public class NameNodeApplication {
     }
 
     @Bean
-    CommandLineRunner runSystem(WorkerRepository workerRepository) {
+    CommandLineRunner runSystem(WorkerRepository workerRepository,
+                                BlockRepository blockRepository) {
         return args -> {
+            // DEV MODE ONLY
+
             // 1️⃣ إعداد Localhost الافتراضي (إذا لم يوجد وركرز)
+            /*
             if (workerRepository.count() == 0) {
                 System.out.println("⚙️ Sistem: Varsayılan Localhost Worker ekleniyor...");
                 // نضيفه ونفترضه نشطاً في البداية
                 workerRepository.save(new WorkerNode("http://localhost:8081"));
             }
-
+*/
             // 2️⃣ تشغيل "نظام نبضات القلب" (Heartbeat Monitor) في الخلفية 💓
             new Thread(() -> {
                 RestTemplate restTemplate = new RestTemplate();
@@ -92,9 +97,42 @@ public class NameNodeApplication {
                             case "list-workers":
                                 List<WorkerNode> list = workerRepository.findAll();
                                 System.out.println("📋 Worker Listesi (" + list.size() + "):");
+
                                 for (WorkerNode w : list) {
                                     String status = w.isActive() ? "🟢 AKTİF" : "🔴 PASİF (Offline)";
-                                    System.out.println("   - [" + w.getId() + "] " + w.getUrl() + " -> " + status);
+
+                                    long usedMB = w.getUsed() / (1024 * 1024);
+                                    long capMB  = w.getCapacity() / (1024 * 1024);
+
+                                    long blockCount = blockRepository.countByWorker(w);
+
+                                    System.out.println("\n[" + w.getId() + "] " + w.getUrl());
+                                    System.out.println("    Status   : " + status);
+                                    System.out.println("    Storage  : " + usedMB + " MB / " + capMB + " MB");
+                                    System.out.println("    Blocks   : " + blockCount);
+                                    System.out.println("    Last HB  : " + w.getLastHeartbeat());
+                                }
+                                break;
+
+
+                            case "add-worker":
+                                if (parts.length < 2) {
+                                    System.out.println("❌ URL gerekli! Örnek: add-worker http://192.168.1.5:8081");
+                                } else {
+                                    String newUrl = parts[1];
+                                    if (workerRepository.findByUrl(newUrl) != null) {
+                                        System.out.println("⚠️ Zaten mevcut!");
+                                    } else {
+                                        // فحص مبدئي قبل الإضافة (Validation Principle)
+                                        System.out.println("⏳ Bağlantı kontrol ediliyor...");
+                                        try {
+                                            new RestTemplate().getForEntity(newUrl + "/api/data/health", String.class);
+                                            workerRepository.save(new WorkerNode(newUrl));
+                                            System.out.println("✅ Başarılı: Worker doğrulandı ve eklendi.");
+                                        } catch (Exception e) {
+                                            System.out.println("❌ HATA: Worker'a ulaşılamadı. Lütfen önce Worker'ı çalıştırın.");
+                                        }
+                                    }
                                 }
                                 break;
 

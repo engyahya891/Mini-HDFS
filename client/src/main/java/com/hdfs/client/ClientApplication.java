@@ -96,7 +96,7 @@ public class ClientApplication implements CommandLineRunner {
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
-            System.out.println("❌ الملف غير موجود!");
+            System.out.println("❌ Dosya bulunamadı!");
             return;
         }
 
@@ -104,7 +104,7 @@ public class ClientApplication implements CommandLineRunner {
         long blockSize = 64 * 1024 * 1024; // 64 MB
 
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
-        System.out.println("📦 جاري تقسيم الملف إلى " + totalBlocks + " بلوك...");
+        System.out.println("📦 Dosya " + totalBlocks + "Bloklara ayrılıyor...");
 
         try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
@@ -113,7 +113,7 @@ public class ClientApplication implements CommandLineRunner {
 
             while ((bytesRead = fis.read(buffer)) != -1) {
                 blockIndex++;
-                System.out.println("\n🔹 معالجة البلوك رقم " + blockIndex + " / " + totalBlocks);
+                System.out.println("\n🔹 Blok numarası işleniyor " + blockIndex + " / " + totalBlocks);
 
                 // 🟢 استخدام MASTER_URL المتغير
                 com.hdfs.common.protocol.BlockAllocation request = new com.hdfs.common.protocol.BlockAllocation();
@@ -124,13 +124,13 @@ public class ClientApplication implements CommandLineRunner {
                         allocateUrl, request, com.hdfs.common.protocol.BlockAllocation.class);
 
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
-                    System.out.println("❌ فشل: الماستر لم يرد بسيرفرات.");
+                    System.out.println("❌ Başarısız: Master, sunuculardan yanıt alamadı.");
                     break;
                 }
 
                 // حلقة التكرار (Replication)
                 for (String workerUrl : response.getWorkerUrls()) {
-                    System.out.println("   🚀 رفع نسخة إلى: " + workerUrl);
+                    System.out.println("🚀 kopya yükleniyor: " + workerUrl);
                     try {
                         byte[] exactData = java.util.Arrays.copyOf(buffer, bytesRead);
 
@@ -158,10 +158,10 @@ public class ClientApplication implements CommandLineRunner {
                     }
                 }
             }
-            System.out.println("\n🎉 تمت عملية الرفع والنسخ الاحتياطي بنجاح!");
+            System.out.println("\n🎉 Yükleme ve yedekleme işlemi başarıyla tamamlandı!");
 
         } catch (Exception e) {
-            System.out.println("❌ خطأ أثناء الرفع: " + e.getMessage());
+            System.out.println("❌ Yükleme sırasında hata oluştu: " + e.getMessage());
         }
     }
 
@@ -179,7 +179,7 @@ public class ClientApplication implements CommandLineRunner {
             String workerUrl = restTemplate.getForObject(locateUrl, String.class);
 
             if ("DOSYA_BULUNAMADI".equals(workerUrl) || workerUrl == null) {
-                System.out.println("⛔ Dosya Master kayıtlarında yok! (File not found)");
+                System.out.println("⛔ Dosya Master kayıtlarında yok! (Dosya bulunamadı)");
                 return;
             }
 
@@ -220,18 +220,18 @@ public class ClientApplication implements CommandLineRunner {
 
     // --- دالة الحذف (Delete) ---
     private void deleteFileRequest(String filename) {
-        System.out.println("🗑️ Deleting " + filename + "...");
+        System.out.println("🗑️ Siliniyor " + filename + "...");
         try {
             // 🟢 استخدام MASTER_URL
             String deleteUrl = MASTER_URL + "/api/file/delete/" + filename;
             restTemplate.delete(deleteUrl);
-            System.out.println("✅ File deleted successfully (from all nodes)!");
+            System.out.println("✅ Dosya başarıyla silindi. (Tüm Node'lerden)!");
 
         } catch (Exception e) {
-            System.out.println("❌ Failed to delete: " + e.getMessage());
+            System.out.println("❌ Silme başarısız: " + e.getMessage());
         }
     }
-
+// لازم نشغلها على ال cmd الحقيقي لان ماعم تشتغل على ال intellij
     private void clearScreen() {
         try {
             String os = System.getProperty("os.name").toLowerCase();

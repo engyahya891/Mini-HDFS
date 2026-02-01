@@ -19,61 +19,70 @@ import java.nio.file.Paths;
 @RequestMapping("/api/data")
 public class DataController {
 
-    // 🟢 نقرأ البورت لكي نجعل مجلد التخزين خاصاً بكل وركر
     @Value("${server.port}")
     private String serverPort;
 
-    // دالة مساعدة لجلب مسار التخزين بناءً على البورت
-    // النتيجة ستكون: ./data/worker_8081/
     private String getStorageDir() {
         return "./data/worker_" + serverPort + "/";
     }
 
-    // 💓 1. نقطة فحص الصحة (Heartbeat / Health Check)
+    // 💓 فحص الصحة
     @GetMapping("/health")
     public ResponseEntity<String> checkHealth() {
+        // لن نطبع شيئاً هنا لكي لا نزعجك بكثرة الرسائل في الكونسول
+        // لأن الماستر ينادي هذه الدالة كل 10 ثواني
         return ResponseEntity.ok("UP");
     }
 
-    // 📥 2. رفع الملفات (Write)
+    // 📥 استقبال ملف (Upload)
     @PostMapping("/write")
     public String uploadFile(@RequestParam("file") MultipartFile file) {
+        System.out.println("\n🔽 ------------------------------------------------ 🔽");
+        System.out.println("📥 DOSYA GELİYOR! (Receiving File)");
+        System.out.println("📄 Dosya Adı: " + file.getOriginalFilename());
+        System.out.println("📦 Boyut: " + file.getSize() + " bytes");
+
         try {
             String currentDir = getStorageDir();
-
             File directory = new File(currentDir);
-            if (!directory.exists()) {
-                directory.mkdirs();
-            }
+            if (!directory.exists()) directory.mkdirs();
 
             Path filepath = Paths.get(currentDir + file.getOriginalFilename());
             file.transferTo(filepath);
 
-            System.out.println("💾 Dosya kaydedildi: " + filepath.toString());
+            System.out.println("✅ KAYDEDİLDİ: " + filepath.toString());
+            System.out.println("🔼 ------------------------------------------------ 🔼\n");
             return "Success";
 
         } catch (IOException e) {
+            System.out.println("❌ HATA (Upload Failed): " + e.getMessage());
             e.printStackTrace();
             return "Failed: " + e.getMessage();
         }
     }
 
-    // 📤 3. تحميل الملفات (Read)
+    // 📤 إرسال ملف (Download)
     @GetMapping("/read/{filename}")
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
+        System.out.println("\n📤 ------------------------------------------------ 📤");
+        System.out.println("📡 DOSYA İSTEĞİ (Download Request)");
+        System.out.println("📄 İstenen Dosya: " + filename);
+
         try {
             Path filePath = Paths.get(getStorageDir() + filename);
             Resource resource = new UrlResource(filePath.toUri());
 
             if (resource.exists() || resource.isReadable()) {
-                System.out.println("📤 Dosya gönderiliyor: " + filename);
+                System.out.println("✅ DOSYA BULUNDU VE GÖNDERİLİYOR...");
 
                 String encodedFilename = URLEncoder.encode(resource.getFilename(), StandardCharsets.UTF_8.toString());
+                System.out.println("📤 ------------------------------------------------ 📤\n");
 
                 return ResponseEntity.ok()
                         .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + encodedFilename + "\"")
                         .body(resource);
             } else {
+                System.out.println("❌ HATA: Dosya bulunamadı!");
                 throw new RuntimeException("Dosya bulunamadı!");
             }
         } catch (MalformedURLException | java.io.UnsupportedEncodingException e) {
@@ -81,46 +90,27 @@ public class DataController {
         }
     }
 
-    // 🗑️ 4. حذف الملفات (Delete - النسخة المعدلة) 🟢
-    // التغيير هنا: بدلاً من حذف اسم الملف بالضبط، نبحث عن كل الأجزاء ونحذفها
+    // 🗑️ حذف ملف (Delete)
     @DeleteMapping("/delete/{filename}")
     public ResponseEntity<String> deleteFile(@PathVariable String filename) {
-        System.out.println("🗑️ Silme isteği alındı: " + filename);
+        System.out.println("\n🗑️ ------------------------------------------------ 🗑️");
+        System.out.println("❌ SİLME İSTEĞİ (Delete Request)");
+        System.out.println("📄 Dosya: " + filename);
 
         try {
-            // 1. الوصول للمجلد
-            File folder = new File(getStorageDir());
+            Path filePath = Paths.get(getStorageDir() + filename);
+            boolean deleted = java.nio.file.Files.deleteIfExists(filePath);
 
-            if (!folder.exists() || !folder.isDirectory()) {
-                return ResponseEntity.status(500).body("Depolama klasörü bulunamadı!");
+            if (deleted) {
+                System.out.println("✅ BAŞARILI: Dosya diskten silindi.");
+                System.out.println("🗑️ ------------------------------------------------ 🗑️\n");
+                return ResponseEntity.ok("File deleted successfully");
+            } else {
+                System.out.println("⚠️ UYARI: Dosya zaten yok.");
+                return ResponseEntity.status(404).body("File not found on disk");
             }
-
-            // 2. الفلترة الذكية: نجد الملفات التي تبدأ بالاسم المطلوب
-            // (مثلاً: video.mkv_part_1, video.mkv_part_2...)
-            File[] matchingFiles = folder.listFiles((dir, name) ->
-                    name.equals(filename) || name.startsWith(filename + "_part_")
-            );
-
-            if (matchingFiles == null || matchingFiles.length == 0) {
-                // إذا لم نجد شيئاً، نعتبر العملية ناجحة (لأن الهدف تحقق والملف غير موجود)
-                return ResponseEntity.ok("Dosya zaten yok (Already deleted).");
-            }
-
-            // 3. حذف كل الملفات التي وجدناها
-            int deletedCount = 0;
-            for (File file : matchingFiles) {
-                if (file.delete()) {
-                    System.out.println("   ✅ Silindi: " + file.getName());
-                    deletedCount++;
-                } else {
-                    System.out.println("   ❌ Silinemedi: " + file.getName());
-                }
-            }
-
-            return ResponseEntity.ok(deletedCount + " parça başarıyla silindi.");
-
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Hata: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error deleting file: " + e.getMessage());
         }
     }
 }

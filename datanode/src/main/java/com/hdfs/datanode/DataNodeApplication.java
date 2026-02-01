@@ -29,7 +29,7 @@ public class DataNodeApplication implements CommandLineRunner {
 
         // 1. طلب عنوان الماستر من المستخدم مباشرة
         Scanner scanner = new Scanner(System.in);
-        System.out.print("✍️ Lütfen Master IP adresini girin (Örnek: 192.168.1.10): ");
+        System.out.println("✍️ Lütfen Master IP adresini girin (Örnek: 192.168.1.10): ");
         String masterIp = scanner.nextLine().trim();
 
         // إذا ضغط المستخدم Enter بدون كتابة، نستخدم Localhost كقيمة افتراضية

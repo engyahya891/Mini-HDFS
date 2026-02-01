@@ -5,28 +5,80 @@ import jakarta.persistence.Id;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 
+import java.time.LocalDateTime;
+
 @Entity
 public class WorkerNode {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue
     private Long id;
 
-    private String url; // مثال: http://localhost:8081
+    private String url;
+    private boolean active;
 
-    private boolean active = true; // هل هو يعمل أم معطل؟
+    private String storagePath;
+    private long capacity;
+    private long used;
 
-    // Constructors
-    public WorkerNode() {}
+    private LocalDateTime lastHeartbeat;
 
-    public WorkerNode(String url) {
+    public WorkerNode(String workerUrl) {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public void setUrl(String url) {
         this.url = url;
     }
 
-    // Getters and Setters
-    public Long getId() { return id; }
-    public String getUrl() { return url; }
-    public void setUrl(String url) { this.url = url; }
-    public boolean isActive() { return active; }
-    public void setActive(boolean active) { this.active = active; }
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
+    public long getCapacity() {
+        return capacity;
+    }
+
+    public void setCapacity(long capacity) {
+        this.capacity = capacity;
+    }
+
+    public String getStoragePath() {
+        return storagePath;
+    }
+
+    public void setStoragePath(String storagePath) {
+        this.storagePath = storagePath;
+    }
+
+    public long getUsed() {
+        return used;
+    }
+
+    public void setUsed(long used) {
+        this.used = used;
+    }
+
+    public LocalDateTime getLastHeartbeat() {
+        return lastHeartbeat;
+    }
+
+    public void setLastHeartbeat(LocalDateTime lastHeartbeat) {
+        this.lastHeartbeat = lastHeartbeat;
+    }
 }
