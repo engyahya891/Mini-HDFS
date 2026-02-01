@@ -6,7 +6,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.client.RestTemplate;
-
+import com.hdfs.datanode.MasterContext;
 
 import java.io.File;
 import java.util.Scanner;
@@ -17,46 +17,44 @@ public class DataNodeApplication implements CommandLineRunner {
     @Value("${server.port}")
     private int serverPort;
 
-    public static void main(String[] args) {
-        SpringApplication.run(DataNodeApplication.class, args);
-    }
-
     @Override
-    public void run(String... args) throws Exception {
+    public void run(String... args) {
+
         System.out.println("=========================================");
         System.out.println("   HDFS DATA NODE (WORKER) STARTING...   ");
         System.out.println("=========================================");
 
-        // 1. طلب عنوان الماستر من المستخدم مباشرة
         Scanner scanner = new Scanner(System.in);
-        System.out.println("✍️ Lütfen Master IP adresini girin (Örnek: 192.168.1.10): ");
+        System.out.print("✍️ Lütfen Master IP adresini girin: ");
         String masterIp = scanner.nextLine().trim();
 
-        // إذا ضغط المستخدم Enter بدون كتابة، نستخدم Localhost كقيمة افتراضية
         if (masterIp.isEmpty()) {
-            masterIp = "localhost";
-            System.out.println("⚠️ Varsayılan olarak 'localhost' kullanılıyor.");
+            System.out.println("❌ Master IP girilmedi! Çıkılıyor...");
+            System.exit(1);
         }
 
-        // 2. تجهيز الرابط والمسار
-        String masterUrl = "http://" + masterIp + ":8080/api/worker/register";
-        String dynamicStoragePath = "./data/worker_" + serverPort;
-        new File(dynamicStoragePath).mkdirs();
+        String masterBaseUrl = "http://" + masterIp + ":8080";
+        MasterContext.set(masterBaseUrl);
+
+        String registerUrl = masterBaseUrl + "/api/worker/register";
+
+        String storagePath = "./data/worker_" + serverPort;
+        new File(storagePath).mkdirs();
 
         WorkerRegisterRequest request = new WorkerRegisterRequest();
         request.setPort(serverPort);
-        request.setStoragePath(dynamicStoragePath);
+        request.setStoragePath(storagePath);
 
-        // 3. محاولة الاتصال
         RestTemplate restTemplate = new RestTemplate();
-        System.out.println("📡 Bağlanılıyor: " + masterUrl);
+        System.out.println("📡 Bağlanılıyor: " + registerUrl);
 
         try {
-            // نستخدم String.class لتجنب مشكلة الـ Void التي ظهرت سابقاً
-            restTemplate.postForObject(masterUrl, request, String.class);
-            System.out.println("✅ BAŞARILI! Master ile bağlantı kuruldu.");
+            restTemplate.postForObject(registerUrl, request, String.class);
+            System.out.println("✅ Worker başarıyla register edildi.");
         } catch (Exception e) {
-            System.out.println("❌ HATA: Master'a ulaşılamadı! (" + e.getMessage() + ")");
+            System.out.println("❌ Master'a bağlanılamadı!");
+            System.out.println("Sebep: " + e.getMessage());
+            System.exit(1);
         }
     }
 }

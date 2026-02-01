@@ -23,9 +23,14 @@ public class WorkerNode {
 
     private LocalDateTime lastHeartbeat;
 
-    public WorkerNode(String workerUrl) {
+    public WorkerNode() {
     }
 
+    // constructor اللي بتستخدميه أنتِ
+    public WorkerNode(String url) {
+        this.url = url;
+        this.active = true;
+    }
     public Long getId() {
         return id;
     }

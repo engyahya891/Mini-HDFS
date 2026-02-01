@@ -74,37 +74,21 @@ public class WorkerController {
      * - Updates storage info and block metadata
      */
     @PostMapping("/report")
-    public ResponseEntity<?> report(
-            @RequestBody StorageReportRequest req,
-            HttpServletRequest servletRequest
-    ) {
-        String ip = servletRequest.getRemoteAddr();
+    public ResponseEntity<?> report(@RequestBody StorageReportRequest req) {
 
-        if ("0:0:0:0:0:0:0:1".equals(ip)) {
-            ip = "127.0.0.1";
-        }
-
-        // نفترض أن كل Worker معروف مسبقًا بنفس الـ IP
-        String urlPrefix = "http://" + ip + ":";
-
-        var workers = workerRepository.findByUrlStartingWith(urlPrefix);
-
-        if (workers.isEmpty()) {
-            return ResponseEntity.badRequest().body("Worker not registered");
-        }
-
-// إذا عندك Worker واحد لكل IP (وضعك الحالي)
-        WorkerNode worker = workers.get(0);
-
+        WorkerNode worker =
+                workerRepository.findByUrl(req.getWorkerUrl());
 
         if (worker == null) {
-            return ResponseEntity.badRequest().body("Worker not registered");
+            return ResponseEntity.badRequest()
+                    .body("Worker not registered: " + req.getWorkerUrl());
         }
 
         worker.setCapacity(req.getCapacity());
         worker.setUsed(req.getUsed());
         worker.setActive(true);
         worker.setLastHeartbeat(LocalDateTime.now());
+
         workerRepository.save(worker);
 
         blockRepository.deleteByWorker(worker);
@@ -119,5 +103,6 @@ public class WorkerController {
 
         return ResponseEntity.ok("Report updated");
     }
+
 
 }
