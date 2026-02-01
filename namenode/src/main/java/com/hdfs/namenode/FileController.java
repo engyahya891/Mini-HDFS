@@ -1,117 +1,121 @@
 package com.hdfs.namenode;
 
-import com.hdfs.common.protocol.BlockAllocation;
-import com.hdfs.common.protocol.ClientUploadRequest;
-import com.hdfs.namenode.model.BlockMetadata;
-import com.hdfs.namenode.model.FileMetadata;
 import com.hdfs.namenode.model.WorkerNode;
-import com.hdfs.namenode.repository.FileRepository;
 import com.hdfs.namenode.repository.WorkerRepository;
+import com.hdfs.namenode.repository.FileRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.hdfs.common.protocol.BlockAllocation; // 🟢 استيراد الكلاس المشترك
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/file")
 public class FileController {
 
     @Autowired
-    private FileRepository fileRepository;
-
-    @Autowired
     private WorkerRepository workerRepository;
 
-    // 🟢 تعريف حجم البلوك (64 ميجابايت)
-    private static final long BLOCK_SIZE = 64 * 1024 * 1024;
+    @Autowired
+    private FileRepository fileRepository;
 
-    // متغير لتطبيق الدور (Round Robin)
-    private int currentWorkerIndex = 0;
+    // 🟢 1. دالة حجز البلوك (الدمج: تقطيع + تكرار)
+    // العميل يرسل رقم البلوك، والماستر يرد بـ "قائمة" سيرفرات لرفع النسخ إليها
+    @PostMapping("/allocate-block")
+    public ResponseEntity<BlockAllocation> allocateBlock(@RequestBody BlockAllocation requestInfo) {
 
-    // --- دالة الرفع المعدلة (ذكية وتقوم بالتقطيع) ---
-    @PostMapping("/upload")
-    public List<BlockAllocation> handleUploadRequest(@RequestBody ClientUploadRequest request) {
+        System.out.println("📦 Blok Yerleştirme İsteği: Blok #" + requestInfo.getBlockIndex());
 
-        System.out.println("📥 طلب رفع جديد (موزع): " + request.getFilename() + " | الحجم: " + request.getFileSize());
-
-        // 1. التحقق من وجود الووركرز النشطين
+        // أ) جلب العمال النشطين
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
-                .toList();
+                .collect(Collectors.toList());
 
         if (activeWorkers.isEmpty()) {
-            throw new RuntimeException("❌ لا يوجد ووركرز متاحين للنظام!");
+            System.out.println("❌ HATA: Aktif worker yok!");
+            return ResponseEntity.status(500).build();
         }
 
-        // 2. حساب عدد البلوكات المطلوبة
-        // معادلة السقف: (Size + BlockSize - 1) / BlockSize
-        int totalBlocks = (int) Math.ceil((double) request.getFileSize() / BLOCK_SIZE);
-        if (totalBlocks == 0) totalBlocks = 1; // للملفات الفارغة جداً
+        // ب) خلط القائمة (Load Balancing)
+        Collections.shuffle(activeWorkers);
 
-        System.out.println("🔢 سيتم تقسيم الملف إلى: " + totalBlocks + " بلوكات.");
+        // ج) التكرار (Replication Factor = 2)
+        // نختار أول خادمين متاحين
+        int replicationFactor = Math.min(activeWorkers.size(), 2);
 
-        // 3. إنشاء سجل الملف (لاحظ: لم نعد نمرر workerUrl هنا)
-        FileMetadata fileData = new FileMetadata(request.getFilename(), request.getFileSize());
+        List<String> selectedWorkerUrls = activeWorkers.stream()
+                .limit(replicationFactor)
+                .map(WorkerNode::getUrl)
+                .collect(Collectors.toList());
 
-        // القائمة التي سنرسلها للعميل (خطة التوزيع)
-        List<BlockAllocation> responsePlan = new ArrayList<>();
+        System.out.println("   ✅ Hedef Sunucular: " + selectedWorkerUrls);
 
-        // 4. حلقة توزيع البلوكات (The Logic) 🔄
-        for (int i = 0; i < totalBlocks; i++) {
+        // د) إرجاع الرد (يحتوي على رقم البلوك + قائمة الروابط)
+        BlockAllocation response = new BlockAllocation(requestInfo.getBlockIndex(), selectedWorkerUrls);
 
-            // اختيار الووركر بالدور
-            WorkerNode selectedWorker = activeWorkers.get(currentWorkerIndex % activeWorkers.size());
-            currentWorkerIndex++; // زيادة العداد للمرة القادمة
-
-            String targetWorkerUrl = selectedWorker.getUrl();
-
-            // أ) إنشاء البلوك وربطه بالملف (للداتا بيس)
-            BlockMetadata block = new BlockMetadata(i, targetWorkerUrl, fileData);
-            fileData.addBlock(block);
-
-            // ب) إضافة للخطة (للعميل)
-            responsePlan.add(new BlockAllocation(i, targetWorkerUrl));
-
-            System.out.println("   🔸 بلوك #" + i + " -> " + targetWorkerUrl);
-        }
-
-        // 5. حفظ الملف مع بلوكاته (Cascade Save)
-        // إذا كان الملف موجوداً مسبقاً، سنحذفه وننشئ جديداً (أو يمكنك منع التكرار)
-        if (fileRepository.existsById(request.getFilename())) {
-            fileRepository.deleteById(request.getFilename());
-        }
-        fileRepository.save(fileData);
-
-        // إرجاع الخطة للعميل
-        return responsePlan;
+        return ResponseEntity.ok(response);
     }
 
-    // --- دالة البحث (Locate) ---
-    // هذه الدالة تحتاج تحديثاً بسيطاً لترجع قائمة البلوكات، لكن مؤقتاً
-    // سنجعلها ترجع مكان "أول بلوك" فقط لكي لا نغير الكثير في وقت واحد
-    // أو يمكنك تركها كما هي إذا كنت لا تستخدمها حالياً للتحميل الموزع
+    // 🟢 2. دالة التوزيع البسيط (احتياطية للرفع بدون تقطيع)
+    @GetMapping("/assign-workers")
+    public ResponseEntity<List<String>> assignWorkers() {
+        List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
+                .collect(Collectors.toList());
+
+        if (activeWorkers.isEmpty()) return ResponseEntity.status(500).build();
+
+        Collections.shuffle(activeWorkers);
+        int replicationFactor = Math.min(activeWorkers.size(), 2);
+
+        List<String> selectedUrls = activeWorkers.subList(0, replicationFactor).stream()
+                .map(WorkerNode::getUrl)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(selectedUrls);
+    }
+
+    // 🟢 3. تحديد مكان الملف (للتنزيل)
     @GetMapping("/locate/{filename}")
     public String locateFile(@PathVariable String filename) {
-        Optional<FileMetadata> fileData = fileRepository.findById(filename);
+        // للتبسيط، نرجع رابط أي وركر نشط، لأن الملف موجود عند الجميع
+        return workerRepository.findAll().stream()
+                .filter(WorkerNode::isActive)
+                .findFirst()
+                .map(WorkerNode::getUrl)
+                .orElse("DOSYA_BULUNAMADI");
+    }
 
-        if (fileData.isPresent() && !fileData.get().getBlocks().isEmpty()) {
-            // نرجع رابط الووركر الذي يملك البلوك رقم 0
-            return fileData.get().getBlocks().get(0).getWorkerUrl();
-        } else {
-            return "NOT_FOUND";
+    // 🟢 4. الحذف الجماعي (Global Delete)
+    @DeleteMapping("/delete/{filename}")
+    public void deleteFile(@PathVariable String filename) {
+        System.out.println("🗑️ Global Silme İsteği: " + filename);
+
+        List<WorkerNode> workers = workerRepository.findAll();
+        org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+
+        for (WorkerNode worker : workers) {
+            if (worker.isActive()) {
+                try {
+                    restTemplate.delete(worker.getUrl() + "/api/data/delete/" + filename);
+                    System.out.println("✅ Silindi: " + worker.getUrl());
+                } catch (Exception e) {
+                    System.out.println("⚠️ Silinemedi: " + worker.getUrl());
+                }
+            }
         }
     }
-
-    // --- دالة الحذف ---
-    // ⚠️ ملاحظة: دالة الحذف تحتاج تحديثاً كبيراً لتمسح كل البلوكات
-    // سأقوم بتعليقها مؤقتاً لتجنب الأخطاء حتى ننتهي من الرفع
-    /*
-    @DeleteMapping("/delete/{filename}")
-    public ResponseEntity<String> deleteFile(@PathVariable String filename) {
-        // ... يحتاج لمنطق جديد لحذف البلوكات المتعددة ...
-        return ResponseEntity.ok("سيتم التحديث لاحقاً");
-    }
-    */
 }
+/*
+* 💡 ماذا صححت لك؟
+أضفت دالة allocateBlock (مع @PostMapping): هذه هي الدالة الأساسية الجديدة التي سيستخدمها العميل المطور لرفع البلوكات.
+
+أبقيت على assignWorkers: تحسباً لو أردت اختبار رفع بسيط في المستقبل.
+
+تأكدت من استيراد BlockAllocation.
+*
+* */
+
