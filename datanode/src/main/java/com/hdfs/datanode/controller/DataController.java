@@ -3,6 +3,8 @@ package com.hdfs.datanode.controller;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -64,53 +66,49 @@ public class DataController {
     // 📤 إرسال ملف (Download)
     @GetMapping("/read/{filename}")
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
-        System.out.println("\n📤 ------------------------------------------------ 📤");
-        System.out.println("📡 DOSYA İSTEĞİ (Download Request)");
-        System.out.println("📄 İstenen Dosya: " + filename);
-
         try {
-            Path filePath = Paths.get(getStorageDir() + filename);
+            // فك تشفير الاسم للتعامل مع المسافات والرموز الخاصة
+            String decodedFileName = java.net.URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+            Path filePath = Paths.get(getStorageDir()).resolve(decodedFileName).normalize();
+
             Resource resource = new UrlResource(filePath.toUri());
 
             if (resource.exists() || resource.isReadable()) {
-                System.out.println("✅ DOSYA BULUNDU VE GÖNDERİLİYOR...");
-
-                String encodedFilename = URLEncoder.encode(resource.getFilename(), StandardCharsets.UTF_8.toString());
-                System.out.println("📤 ------------------------------------------------ 📤\n");
-
                 return ResponseEntity.ok()
-                        .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + encodedFilename + "\"")
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
                         .body(resource);
             } else {
-                System.out.println("❌ HATA: Dosya bulunamadı!");
-                throw new RuntimeException("Dosya bulunamadı!");
+                // سجل المسار الكامل في الـ Console لتعرف أين يبحث الـ Worker بالضبط
+                System.err.println("❌ Dosya bulunamadı: " + filePath.toAbsolutePath());
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
-        } catch (MalformedURLException | java.io.UnsupportedEncodingException e) {
-            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
         }
     }
 
     // 🗑️ حذف ملف (Delete)
     @DeleteMapping("/delete/{filename}")
     public ResponseEntity<String> deleteFile(@PathVariable String filename) {
-        System.out.println("\n🗑️ ------------------------------------------------ 🗑️");
-        System.out.println("❌ SİLME İSTEĞİ (Delete Request)");
-        System.out.println("📄 Dosya: " + filename);
-
         try {
-            Path filePath = Paths.get(getStorageDir() + filename);
-            boolean deleted = java.nio.file.Files.deleteIfExists(filePath);
+            // 1. فك تشفير الاسم للتعامل مع المسافات واللغة العربية %20
+            String decodedName = java.net.URLDecoder.decode(filename, "UTF-8");
+            File directory = new File(getStorageDir());
 
-            if (deleted) {
-                System.out.println("✅ BAŞARILI: Dosya diskten silindi.");
-                System.out.println("🗑️ ------------------------------------------------ 🗑️\n");
-                return ResponseEntity.ok("File deleted successfully");
+            // 2. البحث عن كل الملفات التي تبدأ بهذا الاسم (لحذف part_1, part_2...)
+            File[] matches = directory.listFiles((dir, name) -> name.startsWith(decodedName));
+
+            if (matches != null && matches.length > 0) {
+                int count = 0;
+                for (File f : matches) {
+                    if (f.delete()) count++;
+                }
+                return ResponseEntity.ok("✅ " + count + " parça fiziksel olarak silindi.");
             } else {
-                System.out.println("⚠️ UYARI: Dosya zaten yok.");
-                return ResponseEntity.status(404).body("File not found on disk");
+                return ResponseEntity.status(404).body("⚠️ Dosya bulunamadı.");
             }
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("Error deleting file: " + e.getMessage());
+            return ResponseEntity.internalServerError().body("Hata: " + e.getMessage());
         }
     }
 }

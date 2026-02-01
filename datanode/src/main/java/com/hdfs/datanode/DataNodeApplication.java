@@ -6,7 +6,6 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.client.RestTemplate;
-import com.hdfs.datanode.MasterContext;
 
 import java.io.File;
 import java.util.Scanner;
@@ -17,6 +16,10 @@ public class DataNodeApplication implements CommandLineRunner {
     @Value("${server.port}")
     private int serverPort;
 
+    public static void main(String[] args) {
+        SpringApplication.run(DataNodeApplication.class, args);
+    }
+
     @Override
     public void run(String... args) {
 
@@ -25,7 +28,7 @@ public class DataNodeApplication implements CommandLineRunner {
         System.out.println("=========================================");
 
         Scanner scanner = new Scanner(System.in);
-        System.out.print("✍️ Lütfen Master IP adresini girin: ");
+        System.out.print("✍️ Lütfen Master IP adresini girin (örn: 192.168.1.12): ");
         String masterIp = scanner.nextLine().trim();
 
         if (masterIp.isEmpty()) {
@@ -33,10 +36,7 @@ public class DataNodeApplication implements CommandLineRunner {
             System.exit(1);
         }
 
-        String masterBaseUrl = "http://" + masterIp + ":8080";
-        MasterContext.set(masterBaseUrl);
-
-        String registerUrl = masterBaseUrl + "/api/worker/register";
+        String registerUrl = "http://" + masterIp + ":8080/api/worker/register";
 
         String storagePath = "./data/worker_" + serverPort;
         new File(storagePath).mkdirs();
@@ -56,5 +56,9 @@ public class DataNodeApplication implements CommandLineRunner {
             System.out.println("Sebep: " + e.getMessage());
             System.exit(1);
         }
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\n⚠️ Worker kapanıyor، Master'a haber veriliyor...");
+            // هنا يمكنك إرسال طلب Unregister للماستر إذا أردت
+        }));
     }
 }

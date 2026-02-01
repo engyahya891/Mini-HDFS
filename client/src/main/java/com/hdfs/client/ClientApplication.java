@@ -73,7 +73,7 @@ public class ClientApplication implements CommandLineRunner {
                     System.out.println("⚠️ Lütfen silinecek dosya adını belirtin.");
                     continue;
                 }
-                deleteFileRequest(parts[1]);
+                deleteFileRequest(removeQuotes(parts[1]));
 
             } else if ("clear".equalsIgnoreCase(command)) {
                 clearScreen();
@@ -92,52 +92,60 @@ public class ClientApplication implements CommandLineRunner {
         return path;
     }
 
-    // --- دالة الرفع (Upload) مع التقطيع والتكرار ---
+
+
+    // --- دالة الرفع (Upload) المعدلة بدقة ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
-            System.out.println("❌ Dosya bulunamadı!");
+            System.out.println("❌ Dosya bulunamadı: " + path);
             return;
         }
 
         long fileSize = file.length();
         long blockSize = 64 * 1024 * 1024; // 64 MB
-
+        // حساب عدد البلوكات بدقة باستخدام دالة السقف
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
-        System.out.println("📦 Dosya " + totalBlocks + "Bloklara ayrılıyor...");
+
+        System.out.println("📦 Dosya " + totalBlocks + " bloğa ayrılıyor...");
 
         try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
             int bytesRead;
-            int blockIndex = 0;
+            int blockIndex = 1; // نبدأ الترقيم من 1 ليتوافق مع حلقة التحميل
 
             while ((bytesRead = fis.read(buffer)) != -1) {
-                blockIndex++;
-                System.out.println("\n🔹 Blok numarası işleniyor " + blockIndex + " / " + totalBlocks);
+                System.out.println("\n🔹 Blok numarası işleniyor: " + blockIndex + " / " + totalBlocks);
 
-                // 🟢 استخدام MASTER_URL المتغير
+                // 1. طلب تخصيص من الماستر للقطعة الحالية
                 com.hdfs.common.protocol.BlockAllocation request = new com.hdfs.common.protocol.BlockAllocation();
                 request.setBlockIndex(blockIndex);
+                // ملاحظة: تأكد أن الماستر يستقبل اسم الملف أيضاً لربط البلوكات به
+                // request.setFileName(file.getName());
 
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block";
                 com.hdfs.common.protocol.BlockAllocation response = restTemplate.postForObject(
                         allocateUrl, request, com.hdfs.common.protocol.BlockAllocation.class);
 
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
-                    System.out.println("❌ Başarısız: Master, sunuculardan yanıt alamadı.");
+                    System.out.println("❌ Başarısız: Master'dan uygun Worker adresi alınamadı.");
                     break;
                 }
 
-                // حلقة التكرار (Replication)
+                // 2. تجهيز البيانات الفعلية فقط (تجنب إرسال 64 ميجا كاملة إذا كان الجزء الأخير أصغر)
+                byte[] exactData = java.util.Arrays.copyOf(buffer, bytesRead);
+
+                // 3. إرسال النسخ للـ Workers المحددين (Replication)
                 for (String workerUrl : response.getWorkerUrls()) {
-                    System.out.println("🚀 kopya yükleniyor: " + workerUrl);
+                    System.out.println("🚀 Kopya yükleniyor: " + workerUrl);
                     try {
-                        byte[] exactData = java.util.Arrays.copyOf(buffer, bytesRead);
+                        // تعريف ملف افتراضي ليتمكن الـ Worker من قراءته كـ MultipartFile
+                        final String partName = file.getName() + "_part_" + blockIndex;
 
                         org.springframework.core.io.ByteArrayResource byteResource = new org.springframework.core.io.ByteArrayResource(exactData) {
                             @Override
                             public String getFilename() {
-                                return file.getName() + "_part_" + response.getBlockIndex();
+                                return partName; // هذا الاسم هو ما سيخزن به الملف عند الـ Worker
                             }
                         };
 
@@ -150,68 +158,66 @@ public class ClientApplication implements CommandLineRunner {
                         org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> entity =
                                 new org.springframework.http.HttpEntity<>(body, headers);
 
+                        // إرسال البيانات للـ DataNode
                         restTemplate.postForObject(workerUrl + "/api/data/write", entity, String.class);
-                        System.out.println("      ✅ Başarılı (Uploaded).");
+                        System.out.println("      ✅ " + partName + " başarıyla yüklendi.");
 
                     } catch (Exception e) {
-                        System.out.println("      ⚠️ Başarısız: " + e.getMessage());
+                        System.out.println("      ⚠️ " + workerUrl + " adresine yükleme hatası: " + e.getMessage());
                     }
                 }
+                blockIndex++; // زيادة العداد للقطعة التالية
             }
-            System.out.println("\n🎉 Yükleme ve yedekleme işlemi başarıyla tamamlandı!");
+            System.out.println("\n🎉 Tüm bloklar ve yedekleri başarıyla tamamlandı!");
 
         } catch (Exception e) {
-            System.out.println("❌ Yükleme sırasında hata oluştu: " + e.getMessage());
+            System.out.println("❌ Yükleme sırasında kritik hata: " + e.getMessage());
         }
     }
 
     // --- دالة التحميل (Download) مع التجميع (Reassembly) ---
     private void downloadFile(String filename) {
-        System.out.println("🔄 Master'a soruluyor... (Asking Master...)");
+        System.out.println("🔄 Master'a soruluyor...");
         String targetFolder = "C:\\HDFS_Downloads\\";
 
         try {
-            File directory = new File(targetFolder);
-            if (!directory.exists()) directory.mkdirs();
-
-            // 🟢 1. استخدام MASTER_URL
+            // 1. استعلام الماستر عن الـ Worker (يُفضل مستقبلاً استرجاع عدد الأجزاء أيضاً)
             String locateUrl = MASTER_URL + "/api/file/locate/" + filename;
             String workerUrl = restTemplate.getForObject(locateUrl, String.class);
 
-            if ("DOSYA_BULUNAMADI".equals(workerUrl) || workerUrl == null) {
-                System.out.println("⛔ Dosya Master kayıtlarında yok! (Dosya bulunamadı)");
+            if (workerUrl == null || workerUrl.equals("DOSYA_BULUNAMADI")) {
+                System.out.println("⛔ Dosya bulunamadı!");
                 return;
             }
 
-            System.out.println("📍 Kaynak Worker: " + workerUrl);
-            System.out.println("⬇️ İndirme ve Birleştirme Başlıyor...");
-
             File finalFile = new File(targetFolder + filename);
-
-            // 🟢 2. فتح دفق للكتابة وتجميع الأجزاء
             try (FileOutputStream fos = new FileOutputStream(finalFile)) {
                 int blockIndex = 1;
-                while (true) {
+                boolean moreParts = true;
+
+                while (moreParts) {
+                    String partName = filename + "_part_" + blockIndex;
+                    String downloadUrl = workerUrl + "/api/data/read/" + partName;
+
                     try {
-                        String partName = filename + "_part_" + blockIndex;
-                        String downloadUrl = workerUrl + "/api/data/read/" + partName;
+                        // محاولة تحميل الجزء
+                        org.springframework.http.ResponseEntity<byte[]> response =
+                                restTemplate.getForEntity(downloadUrl, byte[].class);
 
-                        System.out.print("   📥 Parça " + blockIndex + " indiriliyor... ");
-                        byte[] fileBytes = restTemplate.getForObject(downloadUrl, byte[].class);
-
-                        if (fileBytes == null || fileBytes.length == 0) break;
-
-                        fos.write(fileBytes); // دمج البيانات
-                        System.out.println("✅ Tamam.");
-                        blockIndex++;
-
+                        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                            System.out.println("   📥 Parça " + blockIndex + " indirildi.");
+                            fos.write(response.getBody());
+                            blockIndex++;
+                        } else {
+                            moreParts = false; // توقف إذا لم نجد الجزء التالي
+                        }
                     } catch (Exception e) {
-                        System.out.println("\n🏁 İndirme tamamlandı (Son parça).");
-                        break;
+                        // إذا أرجع السيرفر 404 أو أي خطأ، فهذا يعني انتهاء الأجزاء
+                        moreParts = false;
                     }
                 }
             }
-            System.out.println("🎉 Dosya başarıyla kaydedildi: " + finalFile.getAbsolutePath());
+            System.out.println("🎉 Dosya başarıyla birleştirildi: " + finalFile.getAbsolutePath());
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
@@ -220,15 +226,39 @@ public class ClientApplication implements CommandLineRunner {
 
     // --- دالة الحذف (Delete) ---
     private void deleteFileRequest(String filename) {
-        System.out.println("🗑️ Siliniyor " + filename + "...");
-        try {
-            // 🟢 استخدام MASTER_URL
-            String deleteUrl = MASTER_URL + "/api/file/delete/" + filename;
-            restTemplate.delete(deleteUrl);
-            System.out.println("✅ Dosya başarıyla silindi. (Tüm Node'lerden)!");
+        // البدء بعملية الحذف مع طباعة اسم الملف
+        System.out.println("🗑️ Siliniyor: " + filename + "...");
 
+        try {
+            // 1. تشفير اسم الملف (URL Encoding) للتعامل مع المسافات والرموز الخاصة (مثل الأحرف التركية أو العربية)
+            // هذا يمنع ظهور خطأ 400 Bad Request
+            String encodedFileName = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8.toString());
+
+            // 2. بناء الرابط الموجه إلى الماستر (NameNode)
+            String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName;
+
+            // 3. استخدام exchange لاستقبال الرد النصي من الماستر
+            // تم استخدام هذا الأسلوب بدلاً من restTemplate.delete لكي نتمكن من قراءة نص النجاح القادم من السيرفر
+            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
+                    deleteUrl,
+                    org.springframework.http.HttpMethod.DELETE,
+                    null,
+                    String.class
+            );
+
+            // 4. التحقق من نجاح العملية وطباعة الرد الفعلي القادم من الماستر
+            if (response.getStatusCode().is2xxSuccessful()) {
+                System.out.println("✅ Sunucu Yanıtı: " + response.getBody());
+            } else {
+                System.out.println("⚠️ Silme başarısız. Durum kodu: " + response.getStatusCode());
+            }
+
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            // حالة عدم وجود الملف في سجلات الماستر (404)
+            System.out.println("❌ Hata: Dosya bulunamadı (404).");
         } catch (Exception e) {
-            System.out.println("❌ Silme başarısız: " + e.getMessage());
+            // معالجة أي أخطاء أخرى مثل انقطاع الاتصال
+            System.out.println("❌ Silme işlemi sırasında beklenmedik bir hata oluştu: " + e.getMessage());
         }
     }
 // لازم نشغلها على ال cmd الحقيقي لان ماعم تشتغل على ال intellij
