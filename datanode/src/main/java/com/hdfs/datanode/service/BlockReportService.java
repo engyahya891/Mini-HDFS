@@ -22,6 +22,10 @@ public class BlockReportService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+
+    public void setMasterUrl(String masterUrl) {
+        this.masterUrl = masterUrl;
+    }
     // ⏱️ يعمل كل 10 ثوانٍ لإرسال قائمة الملفات
     @Scheduled(fixedRate = 10000)
     public void sendBlockReport() {
