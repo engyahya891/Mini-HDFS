@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 public class WorkerNode {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.IDENTITY) // 🟢 يفضل تحديد الاستراتيجية لتجنب مشاكل الترقيم
     private Long id;
 
     private String url;
@@ -21,16 +21,22 @@ public class WorkerNode {
     private long capacity;
     private long used;
 
+    // 🟢 الإضافة الضرورية: هذا الحقل سيخزن النص "500MB / 1000MB" للعرض السهل
+    private String storageInfo;
+
     private LocalDateTime lastHeartbeat;
 
     public WorkerNode() {
     }
 
-    // constructor اللي بتستخدميه أنتِ
     public WorkerNode(String url) {
         this.url = url;
         this.active = true;
+        this.lastHeartbeat = LocalDateTime.now();
     }
+
+    // --- Getters & Setters ---
+
     public Long getId() {
         return id;
     }
@@ -77,6 +83,15 @@ public class WorkerNode {
 
     public void setUsed(long used) {
         this.used = used;
+    }
+
+    // 🟢 دوال الحقل الجديد
+    public String getStorageInfo() {
+        return storageInfo;
+    }
+
+    public void setStorageInfo(String storageInfo) {
+        this.storageInfo = storageInfo;
     }
 
     public LocalDateTime getLastHeartbeat() {

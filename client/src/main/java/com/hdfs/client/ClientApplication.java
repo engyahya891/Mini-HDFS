@@ -3,15 +3,21 @@ package com.hdfs.client;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
+
 import java.io.File;
 import java.io.FileOutputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Scanner;
 
 @SpringBootApplication
 public class ClientApplication implements CommandLineRunner {
 
-    // 🟢 متغيرات لضبط عنوان الماستر دينامikياً
     private static String MASTER_IP = "localhost";
     private static String MASTER_URL = "http://" + MASTER_IP + ":8080";
 
@@ -25,7 +31,6 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
-        // 🟢 1. إعداد الاتصال عند البداية
         System.out.println("⚙️  HDFS Client Configuration");
         System.out.print("✍️  Lütfen Master IP adresini girin (Default: localhost): ");
         String inputIp = scanner.nextLine().trim();
@@ -38,7 +43,8 @@ public class ClientApplication implements CommandLineRunner {
         System.out.println("✅ Master adresi ayarlandı: " + MASTER_URL);
         System.out.println("------------------------------------------------");
         System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        System.out.println("Kullanılabilir komutlar : upload <dosya>, download <dosya>, delete <dosya>, clear, exit");
+        // 🟢 تمت إضافة ls للقائمة
+        System.out.println("Kullanılabilir komutlar : ls, upload <file>, download <file>, delete <file>, clear, exit");
 
         while (true) {
             System.out.print("> ");
@@ -54,7 +60,11 @@ public class ClientApplication implements CommandLineRunner {
                 break;
             }
 
-            if ("upload".equalsIgnoreCase(command)) {
+            // 🟢 1. أمر عرض الملفات (LS)
+            if ("ls".equalsIgnoreCase(command)) {
+                listFiles();
+
+            } else if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
                     System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
                     continue;
@@ -79,7 +89,7 @@ public class ClientApplication implements CommandLineRunner {
                 clearScreen();
                 System.out.println("✨ Console Cleared! ✨");
             } else {
-                System.out.println("Bilinmeyen komut. (Yardım: upload, download, delete, clear, exit)");
+                System.out.println("Bilinmeyen komut. (Yardım: ls, upload, download, delete, clear, exit)");
             }
         }
     }
@@ -92,9 +102,35 @@ public class ClientApplication implements CommandLineRunner {
         return path;
     }
 
+    // 🟢 دالة عرض الملفات (جديدة)
+    private void listFiles() {
+        System.out.println("📂 Dosyalar listeleniyor...");
+        try {
+            // نستخدم ParameterizedTypeReference لاستقبال List<String>
+            ResponseEntity<List<String>> response = restTemplate.exchange(
+                    MASTER_URL + "/api/file/list",
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<List<String>>() {}
+            );
 
+            List<String> files = response.getBody();
+            if (files == null || files.isEmpty()) {
+                System.out.println("📭 Sistemde hiç dosya yok (Empty).");
+            } else {
+                System.out.println("--------------------------------");
+                System.out.println("📄 MEVCUT DOSYALAR (" + files.size() + "):");
+                for (String f : files) {
+                    System.out.println("   - " + f);
+                }
+                System.out.println("--------------------------------");
+            }
+        } catch (Exception e) {
+            System.out.println("❌ Listeleme hatası: Master'a ulaşılamıyor veya endpoint yok.");
+        }
+    }
 
-    // --- دالة الرفع (Upload) المعدلة بدقة ---
+    // --- Upload ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -104,7 +140,6 @@ public class ClientApplication implements CommandLineRunner {
 
         long fileSize = file.length();
         long blockSize = 64 * 1024 * 1024; // 64 MB
-        // حساب عدد البلوكات بدقة باستخدام دالة السقف
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
 
         System.out.println("📦 Dosya " + totalBlocks + " bloğa ayrılıyor...");
@@ -112,16 +147,13 @@ public class ClientApplication implements CommandLineRunner {
         try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
             int bytesRead;
-            int blockIndex = 1; // نبدأ الترقيم من 1 ليتوافق مع حلقة التحميل
+            int blockIndex = 1;
 
             while ((bytesRead = fis.read(buffer)) != -1) {
                 System.out.println("\n🔹 Blok numarası işleniyor: " + blockIndex + " / " + totalBlocks);
 
-                // 1. طلب تخصيص من الماستر للقطعة الحالية
                 com.hdfs.common.protocol.BlockAllocation request = new com.hdfs.common.protocol.BlockAllocation();
                 request.setBlockIndex(blockIndex);
-                // ملاحظة: تأكد أن الماستر يستقبل اسم الملف أيضاً لربط البلوكات به
-                // request.setFileName(file.getName());
 
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block";
                 com.hdfs.common.protocol.BlockAllocation response = restTemplate.postForObject(
@@ -132,20 +164,17 @@ public class ClientApplication implements CommandLineRunner {
                     break;
                 }
 
-                // 2. تجهيز البيانات الفعلية فقط (تجنب إرسال 64 ميجا كاملة إذا كان الجزء الأخير أصغر)
                 byte[] exactData = java.util.Arrays.copyOf(buffer, bytesRead);
 
-                // 3. إرسال النسخ للـ Workers المحددين (Replication)
                 for (String workerUrl : response.getWorkerUrls()) {
                     System.out.println("🚀 Kopya yükleniyor: " + workerUrl);
                     try {
-                        // تعريف ملف افتراضي ليتمكن الـ Worker من قراءته كـ MultipartFile
                         final String partName = file.getName() + "_part_" + blockIndex;
 
                         org.springframework.core.io.ByteArrayResource byteResource = new org.springframework.core.io.ByteArrayResource(exactData) {
                             @Override
                             public String getFilename() {
-                                return partName; // هذا الاسم هو ما سيخزن به الملف عند الـ Worker
+                                return partName;
                             }
                         };
 
@@ -158,35 +187,39 @@ public class ClientApplication implements CommandLineRunner {
                         org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> entity =
                                 new org.springframework.http.HttpEntity<>(body, headers);
 
-                        // إرسال البيانات للـ DataNode
                         restTemplate.postForObject(workerUrl + "/api/data/write", entity, String.class);
                         System.out.println("      ✅ " + partName + " başarıyla yüklendi.");
 
                     } catch (Exception e) {
-                        System.out.println("      ⚠️ " + workerUrl + " adresine yükleme hatası: " + e.getMessage());
+                        System.out.println("      ⚠️ " + workerUrl + " hatası: " + e.getMessage());
                     }
                 }
-                blockIndex++; // زيادة العداد للقطعة التالية
+                blockIndex++;
             }
-            System.out.println("\n🎉 Tüm bloklar ve yedekleri başarıyla tamamlandı!");
+            System.out.println("\n🎉 Tüm bloklar başarıyla yüklendi!");
 
         } catch (Exception e) {
-            System.out.println("❌ Yükleme sırasında kritik hata: " + e.getMessage());
+            System.out.println("❌ Yükleme hatası: " + e.getMessage());
         }
     }
 
-    // --- دالة التحميل (Download) مع التجميع (Reassembly) ---
+    // --- Download ---
     private void downloadFile(String filename) {
         System.out.println("🔄 Master'a soruluyor...");
         String targetFolder = "C:\\HDFS_Downloads\\";
 
+        // التأكد من وجود مجلد التنزيلات
+        new File(targetFolder).mkdirs();
+
         try {
-            // 1. استعلام الماستر عن الـ Worker (يُفضل مستقبلاً استرجاع عدد الأجزاء أيضاً)
-            String locateUrl = MASTER_URL + "/api/file/locate/" + filename;
+            // التشفير مهم للتعامل مع المسافات
+            String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
+            String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName;
+
             String workerUrl = restTemplate.getForObject(locateUrl, String.class);
 
             if (workerUrl == null || workerUrl.equals("DOSYA_BULUNAMADI")) {
-                System.out.println("⛔ Dosya bulunamadı!");
+                System.out.println("⛔ Dosya Master kayıtlarında bulunamadı!");
                 return;
             }
 
@@ -196,11 +229,13 @@ public class ClientApplication implements CommandLineRunner {
                 boolean moreParts = true;
 
                 while (moreParts) {
+                    // بناء اسم الجزء (يجب أن نتأكد أن الاسم مشفر عند إرساله في الرابط)
                     String partName = filename + "_part_" + blockIndex;
-                    String downloadUrl = workerUrl + "/api/data/read/" + partName;
+                    String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString());
+
+                    String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
-                        // محاولة تحميل الجزء
                         org.springframework.http.ResponseEntity<byte[]> response =
                                 restTemplate.getForEntity(downloadUrl, byte[].class);
 
@@ -209,36 +244,30 @@ public class ClientApplication implements CommandLineRunner {
                             fos.write(response.getBody());
                             blockIndex++;
                         } else {
-                            moreParts = false; // توقف إذا لم نجد الجزء التالي
+                            moreParts = false;
                         }
                     } catch (Exception e) {
-                        // إذا أرجع السيرفر 404 أو أي خطأ، فهذا يعني انتهاء الأجزاء
-                        moreParts = false;
+                        moreParts = false; // نهاية الملف
                     }
                 }
             }
-            System.out.println("🎉 Dosya başarıyla birleştirildi: " + finalFile.getAbsolutePath());
+            System.out.println("🎉 Dosya indirildi: " + finalFile.getAbsolutePath());
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
         }
     }
 
-    // --- دالة الحذف (Delete) ---
+    // --- Delete ---
     private void deleteFileRequest(String filename) {
-        // البدء بعملية الحذف مع طباعة اسم الملف
         System.out.println("🗑️ Siliniyor: " + filename + "...");
 
         try {
-            // 1. تشفير اسم الملف (URL Encoding) للتعامل مع المسافات والرموز الخاصة (مثل الأحرف التركية أو العربية)
-            // هذا يمنع ظهور خطأ 400 Bad Request
-            String encodedFileName = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8.toString());
+            // التشفير ضروري لأننا نستخدم URL
+            String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
 
-            // 2. بناء الرابط الموجه إلى الماستر (NameNode)
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName;
 
-            // 3. استخدام exchange لاستقبال الرد النصي من الماستر
-            // تم استخدام هذا الأسلوب بدلاً من restTemplate.delete لكي نتمكن من قراءة نص النجاح القادم من السيرفر
             org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
                     deleteUrl,
                     org.springframework.http.HttpMethod.DELETE,
@@ -246,22 +275,17 @@ public class ClientApplication implements CommandLineRunner {
                     String.class
             );
 
-            // 4. التحقق من نجاح العملية وطباعة الرد الفعلي القادم من الماستر
             if (response.getStatusCode().is2xxSuccessful()) {
-                System.out.println("✅ Sunucu Yanıtı: " + response.getBody());
+                System.out.println("✅ " + response.getBody());
             } else {
-                System.out.println("⚠️ Silme başarısız. Durum kodu: " + response.getStatusCode());
+                System.out.println("⚠️ Hata Kodu: " + response.getStatusCode());
             }
 
-        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
-            // حالة عدم وجود الملف في سجلات الماستر (404)
-            System.out.println("❌ Hata: Dosya bulunamadı (404).");
         } catch (Exception e) {
-            // معالجة أي أخطاء أخرى مثل انقطاع الاتصال
-            System.out.println("❌ Silme işlemi sırasında beklenmedik bir hata oluştu: " + e.getMessage());
+            System.out.println("❌ Silme hatası: " + e.getMessage());
         }
     }
-// لازم نشغلها على ال cmd الحقيقي لان ماعم تشتغل على ال intellij
+
     private void clearScreen() {
         try {
             String os = System.getProperty("os.name").toLowerCase();
