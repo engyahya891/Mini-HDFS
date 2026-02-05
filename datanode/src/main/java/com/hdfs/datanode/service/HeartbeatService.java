@@ -14,49 +14,48 @@ public class HeartbeatService {
     @Value("${server.port}")
     private String port;
 
-    // 🟢 Master adresinin doğru olduğundan emin olun
+    // القيمة الافتراضية (سيتم تغييرها إذا أدخلت IP آخر في البداية)
     private String masterUrl = "http://localhost:8080";
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    // ⏱️ Her 5 saniyede bir otomatik çalışır
+    // ✅ هذه الدالة صحيحة 100%، وهي التي تسمح بتغيير الرابط
+    public void setMasterUrl(String masterUrl) {
+        this.masterUrl = masterUrl;
+        System.out.println("💓 Heartbeat Service target updated to: " + masterUrl);
+    }
+
+    // ⏱️ يعمل كل 5 ثوانٍ
     @Scheduled(fixedRate = 5000)
     public void sendHeartbeat() {
         try {
-            // 1. Depolama klasörünü belirle ve disk alanını hesapla
+            // 1. حساب المساحة
             File storageDir = new File("./data/worker_" + port);
             if (!storageDir.exists()) storageDir.mkdirs();
 
-            long totalSpace = storageDir.getTotalSpace(); // toplam alan
-            long freeSpace  = storageDir.getFreeSpace();  // boş alan
-            long usedSpace  = totalSpace - freeSpace;     // kullanılan alan
+            long totalSpace = storageDir.getTotalSpace();
+            long freeSpace  = storageDir.getFreeSpace();
+            long usedSpace  = totalSpace - freeSpace;
 
-            // 2. Mevcut cihazın IP adresini al (master'a göndermek için)
+            // 2. معرفة IP جهازي الحالي
             String myIp = InetAddress.getLocalHost().getHostAddress();
             String myUrl = "http://" + myIp + ":" + port;
 
-            // Eğer her zaman localhost kullanıyorsan, yukarıdaki satırlar yerine:
-            // String myUrl = "http://127.0.0.1:" + port;
+            // 3. تجهيز التقرير
+            HeartbeatRequest request = new HeartbeatRequest(myUrl, usedSpace, totalSpace);
 
-            // 3. Heartbeat raporunu hazırla (URL, kullanılan alan, toplam alan)
-            HeartbeatRequest request =
-                    new HeartbeatRequest(myUrl, usedSpace, totalSpace);
-
-            // 4. Master node'a gönder
+            // 4. الإرسال (سيستخدم masterUrl المحدث)
             restTemplate.postForObject(
                     masterUrl + "/api/worker/heartbeat",
                     request,
                     Void.class
             );
 
-            // Kontrol amaçlı çıktı (isteğe bağlı)
-            System.out.println(
-                    "💓 Heartbeat gönderildi: " + myUrl +
-                            " | Kullanılan: " + (usedSpace / 1024 / 1024) + " MB"
-            );
+            System.out.println("💓 Heartbeat sent to " + masterUrl + " | Used: " + (usedSpace / 1024 / 1024) + " MB");
 
         } catch (Exception e) {
-            System.err.println("❌ Heartbeat gönderimi başarısız: " + e.getMessage());
+            // رسالة خطأ مختصرة لتجنب إزعاجك إذا كان الماستر مغلقاً
+            System.err.println("⚠️ Heartbeat failed: Connect to " + masterUrl + " failed.");
         }
     }
 }
