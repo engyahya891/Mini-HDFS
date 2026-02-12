@@ -1,6 +1,7 @@
 package com.hdfs.datanode.service;
 
 import com.hdfs.common.protocol.StorageReportRequest;
+import com.hdfs.datanode.MasterContext; // 👈 استدعاء الكلاس
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -17,25 +18,22 @@ public class BlockReportService {
     @Value("${server.port}")
     private String port;
 
-    // عنوان الماستر
-    private String masterUrl = "http://localhost:8080";
-
     private final RestTemplate restTemplate = new RestTemplate();
 
-
-    public void setMasterUrl(String masterUrl) {
-        this.masterUrl = masterUrl;
-    }
-    // ⏱️ يعمل كل 10 ثوانٍ لإرسال قائمة الملفات
+    // ⏱️ يعمل كل 10 ثوانٍ
     @Scheduled(fixedRate = 10000)
     public void sendBlockReport() {
+        // 🛑 التعديل الأهم: فحص هل تم إدخال الـ IP أم لا؟
+        // إذا لم يتم الإدخال، توقف فوراً ولا ترسل شيئاً (يمنع ظهور الأخطاء)
+        if (!MasterContext.isSet()) {
+            return;
+        }
+
         try {
-            // 1. تحديد المجلد
             String storagePath = "./data/worker_" + port;
             File dir = new File(storagePath);
             if (!dir.exists()) return;
 
-            // 2. قراءة أسماء الملفات (البلوكات)
             File[] files = dir.listFiles();
             List<String> blockIds = new ArrayList<>();
             long used = 0;
@@ -43,30 +41,29 @@ public class BlockReportService {
             if (files != null) {
                 for (File f : files) {
                     if (f.isFile()) {
-                        blockIds.add(f.getName()); // اسم الملف (مثلاً: video.mp4_part_1)
+                        blockIds.add(f.getName());
                         used += f.length();
                     }
                 }
             }
 
-            // 3. تحديد عنواني (نفس منطق Heartbeat لكي يطابق المسجل في الماستر)
             String myIp = InetAddress.getLocalHost().getHostAddress();
             String myUrl = "http://" + myIp + ":" + port;
 
-            // 4. تجهيز التقرير
             StorageReportRequest request = new StorageReportRequest();
-            request.setWorkerUrl(myUrl); // مهم جداً أن يطابق عنوان الوركر المسجل
-            request.setBlockIds(blockIds); // 👈 هذه هي القائمة التي ستملأ جدول BLOCKS
+            request.setWorkerUrl(myUrl);
+            request.setBlockIds(blockIds);
             request.setUsed(used);
             request.setCapacity(dir.getTotalSpace());
 
-            // 5. الإرسال للماستر
-            restTemplate.postForObject(masterUrl + "/api/worker/report", request, String.class);
+            // 👈 استخدام العنوان من MasterContext بدلاً من المتغير المحلي
+            restTemplate.postForObject(MasterContext.get() + "/api/worker/report", request, String.class);
 
-            System.out.println("📦 Blok Raporu Gönderildi: " + blockIds.size() + " blok bulundu.");
+            System.out.println("📦 Blok Raporu Gönderildi (" + blockIds.size() + " dosya).");
 
         } catch (Exception e) {
-            System.err.println("⚠️ Blok Raporu Başarısız: " + e.getMessage());
+            // لن تظهر هذه الرسالة إلا إذا أدخلت IP والشبكة فيها مشكلة
+            System.err.println("⚠️ Blok Raporu Hatası: " + e.getMessage());
         }
     }
 }
