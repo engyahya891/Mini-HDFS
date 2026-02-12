@@ -1,9 +1,6 @@
 package com.hdfs.datanode;
 
 import com.hdfs.common.protocol.WorkerRegisterRequest;
-import com.hdfs.datanode.service.BlockReportService; // 👈 تأكد من الاستيراد
-import com.hdfs.datanode.service.HeartbeatService;   // 👈 تأكد من الاستيراد
-import org.springframework.beans.factory.annotation.Autowired; // 👈 تأكد من الاستيراد
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -22,12 +19,7 @@ public class DataNodeApplication implements CommandLineRunner {
     @Value("${server.port}")
     private int serverPort;
 
-    // 🟢 1. حقن الخدمات هنا لنتمكن من تعديل إعداداتها
-    @Autowired
-    private HeartbeatService heartbeatService;
-
-    @Autowired
-    private BlockReportService blockReportService;
+    // لم نعد بحاجة لحقن الخدمات هنا لأنها ستقرأ من MasterContext تلقائياً
 
     public static void main(String[] args) {
         SpringApplication.run(DataNodeApplication.class, args);
@@ -42,6 +34,7 @@ public class DataNodeApplication implements CommandLineRunner {
 
         Scanner scanner = new Scanner(System.in);
 
+        // البرنامج الآن يعمل، لكن الخدمات صامتة (Silent) لأن MasterContext فارغ
         System.out.print("✍️ Lütfen Master IP adresini girin (Enter = localhost): ");
         String masterIp = scanner.nextLine().trim();
 
@@ -49,18 +42,17 @@ public class DataNodeApplication implements CommandLineRunner {
             masterIp = "localhost";
         }
 
-        // بناء الرابط الأساسي للماستر
-        String masterUrl = "http://" + masterIp + ":8080";
+        // بناء الرابط
+        String fullUrl = "http://" + masterIp + ":8080";
 
-        // 🟢 2. الخطوة الحاسمة: تحديث الخدمات بالرابط الجديد
-        // الآن Heartbeat و Report سيرسلان إلى IP زميلك وليس localhost
-        heartbeatService.setMasterUrl(masterUrl);
-        blockReportService.setMasterUrl(masterUrl);
+        // 🟢 اللحظة الحاسمة: ضبط العنوان في الكلاس المشترك
+        // بمجرد تنفيذ هذا السطر، ستبدأ الخدمات (Heartbeat & Report) بالعمل في دورتها القادمة
+        MasterContext.set(fullUrl);
 
-        System.out.println("🔗 Master URL ayarlandı: " + masterUrl);
+        System.out.println("🔗 Master URL global olarak ayarlandı: " + MasterContext.get());
 
-        // إكمال عملية التسجيل
-        String registerUrl = masterUrl + "/api/worker/register";
+        // --- محاولة التسجيل (Registration) مرة واحدة عند البدء ---
+        String registerUrl = MasterContext.get() + "/api/worker/register";
         String storagePath = "./data/worker_" + serverPort;
         new File(storagePath).mkdirs();
 
@@ -68,28 +60,16 @@ public class DataNodeApplication implements CommandLineRunner {
         request.setPort(serverPort);
         request.setStoragePath(storagePath);
 
-        try {
-            String myIp = InetAddress.getLocalHost().getHostAddress();
-            System.out.println("ℹ️ My Detected IP: " + myIp);
-        } catch (Exception e) {
-            // تجاهل الخطأ
-        }
-
         RestTemplate restTemplate = new RestTemplate();
         System.out.println("📡 Register isteği gönderiliyor: " + registerUrl);
 
         try {
             restTemplate.postForObject(registerUrl, request, String.class);
             System.out.println("✅ Worker başarıyla register edildi.");
-            System.out.println("💓 Heartbeat ve BlockReport servisleri güncellendi ve çalışıyor...");
+            System.out.println("🚀 Servisler (Heartbeat/BlockReport) şimdi veri göndermeye başlayacak.");
         } catch (Exception e) {
-            System.out.println("❌ Master'a bağlanılamadı!");
-            System.out.println("Sebep: " + e.getMessage());
-            // لا نغلق البرنامج لنسمح للخدمات بالمحاولة المستمرة
+            System.out.println("❌ Kayıt başarısız (Master kapalı olabilir).");
+            System.out.println("⚠️ Ancak servisler arka planda denemeye devam edecek.");
         }
-
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\n⚠️ Worker kapanıyor...");
-        }));
     }
 }
