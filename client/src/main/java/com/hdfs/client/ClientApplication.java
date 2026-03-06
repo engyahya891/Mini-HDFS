@@ -1,17 +1,22 @@
 package com.hdfs.client;
 
+import com.hdfs.common.protocol.BlockAllocation; // تأكد أن هذا الكلاس موجود
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.*;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 
@@ -20,6 +25,7 @@ public class ClientApplication implements CommandLineRunner {
 
     private static String MASTER_IP = "localhost";
     private static String MASTER_URL = "http://" + MASTER_IP + ":8080";
+    private static String CURRENT_USER = "anonymous"; // 🟢 المتغير الجديد لاسم المستخدم
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -31,23 +37,34 @@ public class ClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
+        System.out.println("========================================");
         System.out.println("⚙️  HDFS Client Configuration");
+        System.out.println("========================================");
+
+        // 1. إعداد الـ IP
         System.out.print("✍️  Lütfen Master IP adresini girin (Default: localhost): ");
         String inputIp = scanner.nextLine().trim();
-
         if (!inputIp.isEmpty()) {
             MASTER_IP = inputIp;
             MASTER_URL = "http://" + MASTER_IP + ":8080";
         }
 
-        System.out.println("✅ Master adresi ayarlandı: " + MASTER_URL);
+        // 🟢 2. تسجيل الدخول (طلب اسم المستخدم)
+        System.out.print("👤 Kullanıcı Adı Girin (Login): ");
+        String inputUser = scanner.nextLine().trim();
+        if (!inputUser.isEmpty()) {
+            CURRENT_USER = inputUser;
+        }
+
+        System.out.println("✅ Giriş yapıldı: " + CURRENT_USER);
+        System.out.println("✅ Master adresi: " + MASTER_URL);
         System.out.println("------------------------------------------------");
-        System.out.println("Mini-HDFS istemcisine Hoş Geldiniz !");
-        // 🟢 تمت إضافة ls للقائمة
+        System.out.println("Mini-HDFS İstemcisine Hoş Geldiniz, " + CURRENT_USER + "!");
         System.out.println("Kullanılabilir komutlar : ls, upload <file>, download <file>, delete <file>, clear, exit");
 
         while (true) {
-            System.out.print("> ");
+            // تغيير شكل المؤشر ليظهر اسم المستخدم
+            System.out.print(CURRENT_USER + "@hdfs> ");
             String commandLine = scanner.nextLine().trim();
 
             if (commandLine.isEmpty()) continue;
@@ -56,22 +73,22 @@ public class ClientApplication implements CommandLineRunner {
             String command = parts[0];
 
             if ("exit".equalsIgnoreCase(command)) {
-                System.out.println("Güle güle! Çıkış yapılıyor...");
+                System.out.println("👋 Güle güle " + CURRENT_USER + "! Çıkış yapılıyor...");
                 break;
             }
 
-            // 🟢 1. أمر عرض الملفات (LS)
             if ("ls".equalsIgnoreCase(command)) {
-                listFiles();
+                listFiles(); // 🟢 تم تعديلها لترسل اسم المستخدم
 
             } else if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
                     System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
                     continue;
                 }
-                uploadFile(removeQuotes(parts[1]));
+                uploadFile(removeQuotes(parts[1])); // 🟢 تم تعديلها لترسل اسم المستخدم
 
             } else if ("download".equalsIgnoreCase(command)) {
+                // التنزيل لا يحتاج لتغيير (لأننا نبحث عن الملف بالاسم)
                 if (parts.length < 2) {
                     System.out.println("⚠️ Lütfen dosya adını belirtin.");
                     continue;
@@ -89,7 +106,7 @@ public class ClientApplication implements CommandLineRunner {
                 clearScreen();
                 System.out.println("✨ Console Cleared! ✨");
             } else {
-                System.out.println("Bilinmeyen komut. (Yardım: ls, upload, download, delete, clear, exit)");
+                System.out.println("❓ Bilinmeyen komut. (Yardım: ls, upload, download, delete, clear, exit)");
             }
         }
     }
@@ -102,13 +119,15 @@ public class ClientApplication implements CommandLineRunner {
         return path;
     }
 
-    // 🟢 دالة عرض الملفات (جديدة)
+    // 🟢 تعديل دالة LS لتطلب ملفات المستخدم الحالي فقط
     private void listFiles() {
-        System.out.println("📂 Dosyalar listeleniyor...");
+        System.out.println("📂 Dosyalar listeleniyor (" + CURRENT_USER + ")...");
         try {
-            // نستخدم ParameterizedTypeReference لاستقبال List<String>
+            // الرابط الجديد: /api/file/list/{username}
+            String listUrl = MASTER_URL + "/api/file/list/" + CURRENT_USER;
+
             ResponseEntity<List<String>> response = restTemplate.exchange(
-                    MASTER_URL + "/api/file/list",
+                    listUrl,
                     HttpMethod.GET,
                     null,
                     new ParameterizedTypeReference<List<String>>() {}
@@ -116,21 +135,21 @@ public class ClientApplication implements CommandLineRunner {
 
             List<String> files = response.getBody();
             if (files == null || files.isEmpty()) {
-                System.out.println("📭 Sistemde hiç dosya yok (Empty).");
+                System.out.println("📭 Klasörünüz boş.");
             } else {
                 System.out.println("--------------------------------");
-                System.out.println("📄 MEVCUT DOSYALAR (" + files.size() + "):");
+                System.out.println("📄 DOSYALARINIZ (" + files.size() + "):");
                 for (String f : files) {
                     System.out.println("   - " + f);
                 }
                 System.out.println("--------------------------------");
             }
         } catch (Exception e) {
-            System.out.println("❌ Listeleme hatası: Master'a ulaşılamıyor veya endpoint yok.");
+            System.out.println("❌ Listeleme hatası: " + e.getMessage());
         }
     }
 
-    // --- Upload ---
+    // 🟢 تعديل Upload لإرسال اسم المالك
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -142,84 +161,83 @@ public class ClientApplication implements CommandLineRunner {
         long blockSize = 64 * 1024 * 1024; // 64 MB
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
 
-        System.out.println("📦 Dosya " + totalBlocks + " bloğa ayrılıyor...");
+        System.out.println("📦 Dosya: " + file.getName() + " (" + totalBlocks + " blok) yükleniyor...");
 
-        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+        try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
             int bytesRead;
             int blockIndex = 1;
 
             while ((bytesRead = fis.read(buffer)) != -1) {
-                System.out.println("\n🔹 Blok numarası işleniyor: " + blockIndex + " / " + totalBlocks);
+                System.out.println("\n🔹 Blok " + blockIndex + " ayrılıyor...");
 
-                com.hdfs.common.protocol.BlockAllocation request = new com.hdfs.common.protocol.BlockAllocation();
+                // إعداد طلب التخصيص
+                BlockAllocation request = new BlockAllocation();
                 request.setBlockIndex(blockIndex);
 
-                String allocateUrl = MASTER_URL + "/api/file/allocate-block";
-                com.hdfs.common.protocol.BlockAllocation response = restTemplate.postForObject(
-                        allocateUrl, request, com.hdfs.common.protocol.BlockAllocation.class);
+
+                // 🟢 التعديل: إرسال المالك + اسم الملف في الرابط
+                String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
+                        + "&filename=" + file.getName();
+
+                BlockAllocation response = restTemplate.postForObject(
+                        allocateUrl, request, BlockAllocation.class);
 
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
                     System.out.println("❌ Başarısız: Master'dan uygun Worker adresi alınamadı.");
                     break;
                 }
 
-                byte[] exactData = java.util.Arrays.copyOf(buffer, bytesRead);
+                byte[] exactData = Arrays.copyOf(buffer, bytesRead);
 
                 for (String workerUrl : response.getWorkerUrls()) {
-                    System.out.println("🚀 Kopya yükleniyor: " + workerUrl);
+                    System.out.print("   🚀 Yükleniyor -> " + workerUrl + " ... ");
                     try {
                         final String partName = file.getName() + "_part_" + blockIndex;
 
-                        org.springframework.core.io.ByteArrayResource byteResource = new org.springframework.core.io.ByteArrayResource(exactData) {
+                        ByteArrayResource byteResource = new ByteArrayResource(exactData) {
                             @Override
-                            public String getFilename() {
-                                return partName;
-                            }
+                            public String getFilename() { return partName; }
                         };
 
-                        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-                        headers.setContentType(org.springframework.http.MediaType.MULTIPART_FORM_DATA);
+                        HttpHeaders headers = new HttpHeaders();
+                        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-                        org.springframework.util.MultiValueMap<String, Object> body = new org.springframework.util.LinkedMultiValueMap<>();
+                        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
                         body.add("file", byteResource);
 
-                        org.springframework.http.HttpEntity<org.springframework.util.MultiValueMap<String, Object>> entity =
-                                new org.springframework.http.HttpEntity<>(body, headers);
+                        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
 
                         restTemplate.postForObject(workerUrl + "/api/data/write", entity, String.class);
-                        System.out.println("      ✅ " + partName + " başarıyla yüklendi.");
+                        System.out.println("✅ Tamam.");
 
                     } catch (Exception e) {
-                        System.out.println("      ⚠️ " + workerUrl + " hatası: " + e.getMessage());
+                        System.out.println("⚠️ Hata!");
                     }
                 }
                 blockIndex++;
             }
-            System.out.println("\n🎉 Tüm bloklar başarıyla yüklendi!");
+            System.out.println("\n🎉 Yükleme tamamlandı!");
 
         } catch (Exception e) {
             System.out.println("❌ Yükleme hatası: " + e.getMessage());
         }
     }
 
-    // --- Download ---
+    // --- Download (لم يتغير كثيراً) ---
     private void downloadFile(String filename) {
-        System.out.println("🔄 Master'a soruluyor...");
+        System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
-
-        // التأكد من وجود مجلد التنزيلات
         new File(targetFolder).mkdirs();
 
         try {
-            // التشفير مهم للتعامل مع المسافات
             String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
             String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName;
 
             String workerUrl = restTemplate.getForObject(locateUrl, String.class);
 
             if (workerUrl == null || workerUrl.equals("DOSYA_BULUNAMADI")) {
-                System.out.println("⛔ Dosya Master kayıtlarında bulunamadı!");
+                System.out.println("⛔ Dosya bulunamadı veya size ait değil!");
                 return;
             }
 
@@ -229,58 +247,44 @@ public class ClientApplication implements CommandLineRunner {
                 boolean moreParts = true;
 
                 while (moreParts) {
-                    // بناء اسم الجزء (يجب أن نتأكد أن الاسم مشفر عند إرساله في الرابط)
                     String partName = filename + "_part_" + blockIndex;
                     String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString());
-
                     String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
-                        org.springframework.http.ResponseEntity<byte[]> response =
-                                restTemplate.getForEntity(downloadUrl, byte[].class);
-
+                        ResponseEntity<byte[]> response = restTemplate.getForEntity(downloadUrl, byte[].class);
                         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                            System.out.println("   📥 Parça " + blockIndex + " indirildi.");
+                            System.out.print("."); // مؤشر تقدم بسيط
                             fos.write(response.getBody());
                             blockIndex++;
                         } else {
                             moreParts = false;
                         }
                     } catch (Exception e) {
-                        moreParts = false; // نهاية الملف
+                        moreParts = false;
                     }
                 }
             }
-            System.out.println("🎉 Dosya indirildi: " + finalFile.getAbsolutePath());
+            System.out.println("\n🎉 Dosya indirildi: " + finalFile.getAbsolutePath());
 
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
         }
     }
 
-    // --- Delete ---
+    // --- Delete (لم يتغير) ---
     private void deleteFileRequest(String filename) {
         System.out.println("🗑️ Siliniyor: " + filename + "...");
-
         try {
-            // التشفير ضروري لأننا نستخدم URL
             String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
-
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName;
 
-            org.springframework.http.ResponseEntity<String> response = restTemplate.exchange(
-                    deleteUrl,
-                    org.springframework.http.HttpMethod.DELETE,
-                    null,
-                    String.class
-            );
-
+            ResponseEntity<String> response = restTemplate.exchange(deleteUrl, HttpMethod.DELETE, null, String.class);
             if (response.getStatusCode().is2xxSuccessful()) {
                 System.out.println("✅ " + response.getBody());
             } else {
-                System.out.println("⚠️ Hata Kodu: " + response.getStatusCode());
+                System.out.println("⚠️ Hata: " + response.getStatusCode());
             }
-
         } catch (Exception e) {
             System.out.println("❌ Silme hatası: " + e.getMessage());
         }
@@ -289,14 +293,8 @@ public class ClientApplication implements CommandLineRunner {
     private void clearScreen() {
         try {
             String os = System.getProperty("os.name").toLowerCase();
-            if (os.contains("win")) {
-                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
-            } else {
-                System.out.print("\033[H\033[2J");
-                System.out.flush();
-            }
-        } catch (Exception e) {
-            for (int i = 0; i < 50; i++) System.out.println();
-        }
+            if (os.contains("win")) new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
+            else { System.out.print("\033[H\033[2J"); System.out.flush(); }
+        } catch (Exception e) { for (int i = 0; i < 50; i++) System.out.println(); }
     }
 }

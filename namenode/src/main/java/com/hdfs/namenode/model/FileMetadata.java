@@ -13,27 +13,39 @@ public class FileMetadata {
 
     private long fileSize;
 
-    // 🔴 حذفنا workerUrl القديم
-    // private String workerUrl;  <-- تم الحذف
+    // 🟢 التعديل الجديد: إضافة حقل المالك (Owner)
+    // هذا الحقل سيخزن اسم المستخدم الذي رفع الملف
+    @Column(nullable = false)
+    private String owner;
 
-    // 🟢 أضفنا قائمة البلوكات (One File -> Many Blocks)
+    // 🟢 قائمة البلوكات (كما هي)
     @OneToMany(mappedBy = "fileMetadata", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<BlockMetadata> blocks = new ArrayList<>();
 
     public FileMetadata() {}
 
-    public FileMetadata(String filename, long fileSize) {
+    // تم تحديث الـ Constructor لاستقبال اسم المالك أيضاً
+    public FileMetadata(String filename, long fileSize, String owner) {
         this.filename = filename;
         this.fileSize = fileSize;
+        this.owner = owner;
     }
 
-    // دالة مساعدة لإضافة بلوك جديد بسهولة
+    // دالة مساعدة لإضافة بلوك جديد
     public void addBlock(BlockMetadata block) {
         this.blocks.add(block);
+        block.setFileMetadata(this); // ربط البلوك بالملف (Bi-directional)
     }
 
-    // Getters
+    // --- Getters ---
     public String getFilename() { return filename; }
     public long getFileSize() { return fileSize; }
+    public String getOwner() { return owner; } // Getter الجديد
     public List<BlockMetadata> getBlocks() { return blocks; }
+
+    // --- Setters ---
+    public void setFilename(String filename) { this.filename = filename; }
+    public void setFileSize(long fileSize) { this.fileSize = fileSize; }
+    public void setOwner(String owner) { this.owner = owner; } // Setter الجديد
+    public void setBlocks(List<BlockMetadata> blocks) { this.blocks = blocks; }
 }
