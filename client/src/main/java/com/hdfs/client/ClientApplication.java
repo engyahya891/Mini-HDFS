@@ -1,6 +1,6 @@
 package com.hdfs.client;
 
-import com.hdfs.common.protocol.BlockAllocation; // تأكد أن هذا الكلاس موجود
+import com.hdfs.common.protocol.BlockAllocation;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -9,6 +9,7 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException; // 🟢 استيراد مهم جداً للأخطاء
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
@@ -25,7 +26,7 @@ public class ClientApplication implements CommandLineRunner {
 
     private static String MASTER_IP = "localhost";
     private static String MASTER_URL = "http://" + MASTER_IP + ":8080";
-    private static String CURRENT_USER = "anonymous"; // 🟢 المتغير الجديد لاسم المستخدم
+    private static String CURRENT_USER = "anonymous";
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -49,7 +50,7 @@ public class ClientApplication implements CommandLineRunner {
             MASTER_URL = "http://" + MASTER_IP + ":8080";
         }
 
-        // 🟢 2. تسجيل الدخول (طلب اسم المستخدم)
+        // 2. تسجيل الدخول
         System.out.print("👤 Kullanıcı Adı Girin (Login): ");
         String inputUser = scanner.nextLine().trim();
         if (!inputUser.isEmpty()) {
@@ -63,7 +64,6 @@ public class ClientApplication implements CommandLineRunner {
         System.out.println("Kullanılabilir komutlar : ls, upload <file>, download <file>, delete <file>, clear, exit");
 
         while (true) {
-            // تغيير شكل المؤشر ليظهر اسم المستخدم
             System.out.print(CURRENT_USER + "@hdfs> ");
             String commandLine = scanner.nextLine().trim();
 
@@ -78,17 +78,16 @@ public class ClientApplication implements CommandLineRunner {
             }
 
             if ("ls".equalsIgnoreCase(command)) {
-                listFiles(); // 🟢 تم تعديلها لترسل اسم المستخدم
+                listFiles();
 
             } else if ("upload".equalsIgnoreCase(command)) {
                 if (parts.length < 2) {
                     System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
                     continue;
                 }
-                uploadFile(removeQuotes(parts[1])); // 🟢 تم تعديلها لترسل اسم المستخدم
+                uploadFile(removeQuotes(parts[1]));
 
             } else if ("download".equalsIgnoreCase(command)) {
-                // التنزيل لا يحتاج لتغيير (لأننا نبحث عن الملف بالاسم)
                 if (parts.length < 2) {
                     System.out.println("⚠️ Lütfen dosya adını belirtin.");
                     continue;
@@ -119,11 +118,10 @@ public class ClientApplication implements CommandLineRunner {
         return path;
     }
 
-    // 🟢 تعديل دالة LS لتطلب ملفات المستخدم الحالي فقط
+    // --- List Files (LS) ---
     private void listFiles() {
         System.out.println("📂 Dosyalar listeleniyor (" + CURRENT_USER + ")...");
         try {
-            // الرابط الجديد: /api/file/list/{username}
             String listUrl = MASTER_URL + "/api/file/list/" + CURRENT_USER;
 
             ResponseEntity<List<String>> response = restTemplate.exchange(
@@ -149,7 +147,7 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // 🟢 تعديل Upload لإرسال اسم المالك
+    // --- Upload ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -171,12 +169,10 @@ public class ClientApplication implements CommandLineRunner {
             while ((bytesRead = fis.read(buffer)) != -1) {
                 System.out.println("\n🔹 Blok " + blockIndex + " ayrılıyor...");
 
-                // إعداد طلب التخصيص
                 BlockAllocation request = new BlockAllocation();
                 request.setBlockIndex(blockIndex);
 
-
-                // 🟢 التعديل: إرسال المالك + اسم الملف في الرابط
+                // إرسال المالك واسم الملف في الرابط
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
                         + "&filename=" + file.getName();
 
@@ -224,7 +220,7 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // --- Download (لم يتغير كثيراً) ---
+    // --- Download (المعدلة والمصححة) ---
     private void downloadFile(String filename) {
         System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
@@ -232,16 +228,30 @@ public class ClientApplication implements CommandLineRunner {
 
         try {
             String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
-            String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName;
 
-            String workerUrl = restTemplate.getForObject(locateUrl, String.class);
+            // 1. أولاً: التحقق من وجود الملف وصلاحية المستخدم
+            String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName + "?owner=" + CURRENT_USER;
+            String workerUrl = null;
 
-            if (workerUrl == null || workerUrl.equals("DOSYA_BULUNAMADI")) {
-                System.out.println("⛔ Dosya bulunamadı veya size ait değil!");
+            try {
+                // نستخدم getForEntity لنتمكن de التقاط الـ StatusCode
+                ResponseEntity<String> response = restTemplate.getForEntity(locateUrl, String.class);
+                workerUrl = response.getBody();
+            } catch (HttpClientErrorException e) {
+                // 🛑 إذا رد الماستر بـ 404 أو 403، ندخل هنا
+                System.out.println("❌ HATA: " + e.getResponseBodyAsString()); // يطبع رسالة الماستر (مثل: الملف غير موجود)
+                return; // نخرج فوراً ولا ننشئ الملف
+            }
+
+            if (workerUrl == null) {
+                System.out.println("❌ Hata: Bilinmeyen bir hata oluştu.");
                 return;
             }
 
+            // 2. ثانياً: إنشاء الملف وبدء التحميل
             File finalFile = new File(targetFolder + filename);
+            boolean success = false;
+
             try (FileOutputStream fos = new FileOutputStream(finalFile)) {
                 int blockIndex = 1;
                 boolean moreParts = true;
@@ -254,7 +264,7 @@ public class ClientApplication implements CommandLineRunner {
                     try {
                         ResponseEntity<byte[]> response = restTemplate.getForEntity(downloadUrl, byte[].class);
                         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                            System.out.print("."); // مؤشر تقدم بسيط
+                            System.out.print(".");
                             fos.write(response.getBody());
                             blockIndex++;
                         } else {
@@ -264,29 +274,52 @@ public class ClientApplication implements CommandLineRunner {
                         moreParts = false;
                     }
                 }
+                success = true; // تم التحميل للنهاية
+            } catch (Exception e) {
+                System.out.println("\n❌ Yazma hatası: " + e.getMessage());
             }
-            System.out.println("\n🎉 Dosya indirildi: " + finalFile.getAbsolutePath());
+
+            // 3. التنظيف: إذا فشلت العملية أو كان الملف فارغاً، نحذفه
+            if (finalFile.exists() && (!success || finalFile.length() == 0)) {
+                finalFile.delete();
+                if (!success) System.out.println("\n⚠️ İndirme yarım kaldı, bozuk dosya silindi.");
+            } else {
+                System.out.println("\n🎉 Dosya başarıyla indirildi: " + finalFile.getAbsolutePath());
+            }
 
         } catch (Exception e) {
-            System.out.println("❌ Hata: " + e.getMessage());
+            System.out.println("❌ Genel Hata: " + e.getMessage());
         }
     }
 
-    // --- Delete (لم يتغير) ---
+    // --- Delete (المعدلة والمصححة) ---
     private void deleteFileRequest(String filename) {
         System.out.println("🗑️ Siliniyor: " + filename + "...");
         try {
             String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
-            String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName;
 
-            ResponseEntity<String> response = restTemplate.exchange(deleteUrl, HttpMethod.DELETE, null, String.class);
+            // إرسال المالك في الرابط
+            String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName + "?owner=" + CURRENT_USER;
+
+            // استخدام exchange لالتقاط رموز الخطأ
+            ResponseEntity<String> response = restTemplate.exchange(
+                    deleteUrl,
+                    HttpMethod.DELETE,
+                    null,
+                    String.class
+            );
+
             if (response.getStatusCode().is2xxSuccessful()) {
                 System.out.println("✅ " + response.getBody());
             } else {
-                System.out.println("⚠️ Hata: " + response.getStatusCode());
+                System.out.println("⚠️ " + response.getBody());
             }
+
+        } catch (HttpClientErrorException e) {
+            // 🛑 هنا نلتقط رسالة الخطأ الحقيقية من الماستر (404, 403)
+            System.out.println("❌ İşlem Başarısız: " + e.getResponseBodyAsString());
         } catch (Exception e) {
-            System.out.println("❌ Silme hatası: " + e.getMessage());
+            System.out.println("❌ Hata: " + e.getMessage());
         }
     }
 

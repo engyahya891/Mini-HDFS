@@ -1,10 +1,10 @@
 package com.hdfs.namenode.controller;
 
 import com.hdfs.namenode.model.BlockMetadata;
-import com.hdfs.namenode.model.FileMetadata; // 🟢 استيراد الكلاس الجديد
+import com.hdfs.namenode.model.FileMetadata;
 import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.BlockRepository;
-import com.hdfs.namenode.repository.FileRepository; // 🟢 استيراد الريبوزيتوري الجديد
+import com.hdfs.namenode.repository.FileRepository;
 import com.hdfs.namenode.repository.WorkerRepository;
 import com.hdfs.common.protocol.BlockAllocation;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 
 @RestController
 @RequestMapping("/api/file")
@@ -31,21 +32,17 @@ public class FileController {
     private BlockRepository blockRepository;
 
     @Autowired
-    private FileRepository fileRepository; // 🟢 1. أضفنا هذا للتعامل مع جدول الملفات والمالك
+    private FileRepository fileRepository;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
-    // 🟢 2. تعديل الرفع (Allocate Block) ليحفظ اسم المالك
-    // أصبحنا نطلب "owner" كـ Parameter في الرابط
-    // 🟢 2. تعديل الرفع (Allocate Block)
-    // الآن نستقبل المالك + اسم الملف من الرابط مباشرة
+    // 🟢 1. الرفع (Allocate Block)
     @PostMapping("/allocate-block")
     public ResponseEntity<BlockAllocation> allocateBlock(
             @RequestBody BlockAllocation requestInfo,
             @RequestParam(name = "owner", defaultValue = "anonymous") String owner,
-            @RequestParam(name = "filename") String filename) { // 👈 الإضافة الجديدة هنا
+            @RequestParam(name = "filename") String filename) {
 
-        // 1. اختيار الـ Workers (نفس الكود القديم)
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
                 .collect(Collectors.toList());
@@ -62,10 +59,7 @@ public class FileController {
                 .map(WorkerNode::getUrl)
                 .collect(Collectors.toList());
 
-        // 2. 🟢 حفظ الملكية (تم إصلاح الخطأ هنا)
         try {
-            // لم نعد نستخدم requestInfo.getFilename()
-            // بل نستخدم المتغير filename الذي وصلنا من الرابط مباشرة
             if (filename != null && !filename.isEmpty()) {
                 FileMetadata fileMeta = fileRepository.findByFilename(filename);
                 if (fileMeta == null) {
@@ -78,7 +72,6 @@ public class FileController {
             System.err.println("⚠️ hata saving file metadata: " + e.getMessage());
         }
 
-        // 3. تجهيز الرد
         BlockAllocation response = new BlockAllocation();
         response.setBlockIndex(requestInfo.getBlockIndex());
         response.setWorkerUrls(selectedUrls);
@@ -86,80 +79,126 @@ public class FileController {
         return ResponseEntity.ok(response);
     }
 
-    // 🟢 3. تعديل القائمة (List) لتعرض ملفات المالك فقط
-    // الرابط الجديد أصبح: /api/file/list/{owner}
+    // 🟢 2. القائمة (List)
     @GetMapping("/list/{owner}")
     public ResponseEntity<List<String>> listFiles(@PathVariable String owner) {
-
         System.out.println("📂 Dosya listeleme isteği: " + owner);
-
-        // البحث باستخدام الدالة التي أضفناها في FileRepository
         List<FileMetadata> userFiles = fileRepository.findByOwner(owner);
-
         List<String> fileNames = userFiles.stream()
                 .map(FileMetadata::getFilename)
                 .sorted()
                 .collect(Collectors.toList());
-
-        if (fileNames.isEmpty()) {
-            System.out.println("ℹ️ Bu kullanıcı için dosya bulunamadı.");
-        }
-
         return ResponseEntity.ok(fileNames);
     }
 
-    // --- الدوال القديمة (Locate & Delete) تبقى كما هي مؤقتاً ---
+    // 🟢 3. البحث (Download Location)
+    @GetMapping("/locate/{filename:.+}")
+    public ResponseEntity<String> locateFile(
+            @PathVariable String filename,
+            @RequestParam(name = "owner") String owner) {
 
-    // 🟢 2. Dosya konumu bulma (Download)
-    @GetMapping("/locate/{filename}")
-    public String locateFile(@PathVariable String filename) {
-        return workerRepository.findAll().stream()
+        System.out.println("🔍 araştırma talebi : " + filename);
+
+        // المحاولة الأولى: البحث بالاسم كما وصل
+        FileMetadata fileMeta = fileRepository.findByFilename(filename);
+
+        // المحاولة الثانية: إذا فشل، نحاول فك التشفير (للمسافات والأحرف الخاصة)
+        if (fileMeta == null) {
+            try {
+                String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+                fileMeta = fileRepository.findByFilename(decodedName);
+            } catch (Exception e) {}
+        }
+
+        if (fileMeta == null || !fileMeta.getOwner().equals(owner)) {
+            return ResponseEntity.status(404).body("DOSYA_BULUNAMADI");
+        }
+
+        String workerUrl = workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
                 .findFirst()
                 .map(WorkerNode::getUrl)
-                .orElse("DOSYA_BULUNAMADI");
+                .orElse(null);
+
+        if (workerUrl == null) {
+            return ResponseEntity.status(503).body("WORKER_YOK");
+        }
+
+        return ResponseEntity.ok(workerUrl);
     }
 
-    // 🔴 3. Silme (Delete)
-    @DeleteMapping("/delete/{filename}")
-    public ResponseEntity<String> deleteFile(@PathVariable String filename) {
-        // ... (نفس كود الحذف القديم الخاص بك تماماً) ...
-        // (اختصاراً للمساحة لم أعد كتابته، لكن اتركه كما هو عندك)
-        System.out.println("🗑️ Master: Silme isteği alındı -> " + filename);
+    // 🔴 4. الحذف (Delete) - تم التصحيح هنا
+    @DeleteMapping("/delete/{filename:.+}")
+    public ResponseEntity<String> deleteFile(
+            @PathVariable String filename,
+            @RequestParam(name = "owner") String owner) {
+
+        System.out.println("🗑️ Master: Silme isteği -> " + filename + " (" + owner + ")");
+
+        // 🛠️ التصحيح: نطبق نفس منطق البحث الموجود في locateFile
+        FileMetadata fileMeta = fileRepository.findByFilename(filename);
+
+        if (fileMeta == null) {
+            try {
+                String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+                fileMeta = fileRepository.findByFilename(decodedName);
+                if (fileMeta != null) {
+                    System.out.println("✅ Dosya decode edilerek bulundu: " + decodedName);
+                }
+            } catch (Exception e) {}
+        }
+
+        // الآن نتحقق
+        if (fileMeta == null) {
+            System.out.println("❌ HATA: Dosya veritabanında bulunamadı!");
+            return ResponseEntity.status(404).body("HATA: Dosya bulunamadı!");
+        }
+
+        if (!fileMeta.getOwner().equals(owner)) {
+            return ResponseEntity.status(403).body("HATA: Bu dosyayı silmeye yetkiniz yok!");
+        }
+
+        // نحتفظ بالاسم الحقيقي للملف لاستخدامه في الحذف
+        String realFilename = fileMeta.getFilename();
 
         try {
-            String cleanFilename = URLDecoder.decode(filename, StandardCharsets.UTF_8);
+            // 1. حذف من الداتا بيز (Metadata)
+            fileRepository.delete(fileMeta);
 
-            // 🟢 تحديث بسيط: حذف الميتاداتا الخاصة بالملف أيضاً
-            FileMetadata fileMeta = fileRepository.findByFilename(cleanFilename);
-            if (fileMeta != null) {
-                fileRepository.delete(fileMeta);
-            }
-
-            // حذف البلوكات القديم
+            // 2. حذف البلوكات من الداتا بيز
             List<BlockMetadata> allBlocks = blockRepository.findAll();
             for (BlockMetadata block : allBlocks) {
-                if (Objects.equals(block.getFilename(), cleanFilename) ||
-                        (block.getBlockId() != null && block.getBlockId().startsWith(cleanFilename))) {
+                // نستخدم الاسم الحقيقي هنا للمقارنة
+                if (Objects.equals(block.getFilename(), realFilename) ||
+                        (block.getBlockId() != null && block.getBlockId().startsWith(realFilename))) {
                     blockRepository.delete(block);
                 }
             }
-        } catch (Exception e) {
-            System.err.println("⚠️ Veritabanı hatası: " + e.getMessage());
-        }
 
-        // Fiziksel silme (Worker'lara gönder)
-        List<WorkerNode> workers = workerRepository.findAll();
-        for (WorkerNode worker : workers) {
-            if (worker.isActive()) {
-                try {
-                    String base64Name = Base64.getUrlEncoder()
-                            .encodeToString(filename.getBytes(StandardCharsets.UTF_8));
-                    String workerDeleteUrl = worker.getUrl() + "/api/data/delete/" + base64Name;
-                    restTemplate.delete(workerDeleteUrl);
-                } catch (Exception ignored) {}
+            // 3. إرسال أمر الحذف للـ Workers
+            List<WorkerNode> workers = workerRepository.findAll();
+
+            // نستخدم الاسم الحقيقي للتشفير عند الإرسال للووركر
+            String base64Name = Base64.getUrlEncoder()
+                    .encodeToString(realFilename.getBytes(StandardCharsets.UTF_8));
+
+            for (WorkerNode worker : workers) {
+                if (worker.isActive()) {
+                    try {
+                        String workerDeleteUrl = worker.getUrl() + "/api/data/delete/" + base64Name;
+                        restTemplate.delete(workerDeleteUrl);
+                        System.out.println("📤 Delete sent to worker: " + worker.getUrl());
+                    } catch (Exception ignored) {
+                        System.out.println("⚠️ Worker unreachable: " + worker.getUrl());
+                    }
+                }
             }
+
+            return ResponseEntity.ok("Dosya başarıyla silindi.");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Veritabanı hatası: " + e.getMessage());
         }
-        return ResponseEntity.ok("Silme komutu gönderildi.");
     }
 }
