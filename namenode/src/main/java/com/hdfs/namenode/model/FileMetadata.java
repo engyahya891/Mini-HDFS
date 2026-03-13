@@ -13,18 +13,22 @@ public class FileMetadata {
 
     private long fileSize;
 
-    // 🟢 التعديل الجديد: إضافة حقل المالك (Owner)
-    // هذا الحقل سيخزن اسم المستخدم الذي رفع الملف
+    // حقل المالك (Owner)
     @Column(nullable = false)
     private String owner;
 
-    // 🟢 قائمة البلوكات (كما هي)
+    // 🟢 الإضافة السحرية: قفل التزامن المتفائل (Optimistic Locking)
+    // هذا الحقل سيحمي قاعدة البيانات من تداخل الطلبات المتزامنة
+    @Version
+    private Long version;
+
+    // قائمة البلوكات
     @OneToMany(mappedBy = "fileMetadata", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<BlockMetadata> blocks = new ArrayList<>();
 
     public FileMetadata() {}
 
-    // تم تحديث الـ Constructor لاستقبال اسم المالك أيضاً
+    // Constructor
     public FileMetadata(String filename, long fileSize, String owner) {
         this.filename = filename;
         this.fileSize = fileSize;
@@ -40,12 +44,14 @@ public class FileMetadata {
     // --- Getters ---
     public String getFilename() { return filename; }
     public long getFileSize() { return fileSize; }
-    public String getOwner() { return owner; } // Getter الجديد
+    public String getOwner() { return owner; }
+    public Long getVersion() { return version; } // 🟢 Getter الجديد للنسخة
     public List<BlockMetadata> getBlocks() { return blocks; }
 
     // --- Setters ---
     public void setFilename(String filename) { this.filename = filename; }
     public void setFileSize(long fileSize) { this.fileSize = fileSize; }
-    public void setOwner(String owner) { this.owner = owner; } // Setter الجديد
+    public void setOwner(String owner) { this.owner = owner; }
+    public void setVersion(Long version) { this.version = version; } // 🟢 Setter الجديد للنسخة
     public void setBlocks(List<BlockMetadata> blocks) { this.blocks = blocks; }
 }
