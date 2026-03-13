@@ -63,10 +63,18 @@ public class FileController {
         try {
             if (filename != null && !filename.isEmpty()) {
                 FileMetadata fileMeta = fileRepository.findByFilename(filename);
+
                 if (fileMeta == null) {
-                    fileMeta = new FileMetadata(filename, 0, owner);
-                    fileRepository.save(fileMeta);
-                    System.out.println("📝 Yeni dosya kaydedildi: " + filename + " kullanıcı: " + owner);
+                    // 🟢 التعديل الجوهري: ننشئ الملف فقط إذا كان هذا هو البلوك الأول
+                    if (requestInfo.getBlockIndex() == 1) {
+                        fileMeta = new FileMetadata(filename, 0, owner);
+                        fileRepository.save(fileMeta);
+                        System.out.println("📝 Yeni dosya kaydedildi: " + filename + " kullanıcı: " + owner);
+                    } else {
+                        // 🔴 إذا لم يكن البلوك الأول والملف غير موجود، فهذا يعني أنه حُذف أثناء الرفع!
+                        System.out.println("🚨 HATA: Dosya yükleme sırasında silinmiş! İşlem reddedildi.");
+                        return ResponseEntity.status(409).build(); // 409 Conflict
+                    }
                 }
             }
         } catch (Exception e) {

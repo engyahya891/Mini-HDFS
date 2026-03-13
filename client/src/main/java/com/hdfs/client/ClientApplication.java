@@ -179,8 +179,18 @@ public class ClientApplication implements CommandLineRunner {
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
                         + "&filename=" + file.getName();
 
-                BlockAllocation response = restTemplate.postForObject(
-                        allocateUrl, request, BlockAllocation.class);
+                BlockAllocation response = null;
+                try {
+                    response = restTemplate.postForObject(allocateUrl, request, BlockAllocation.class);
+                } catch (HttpClientErrorException e) {
+                    // 🟢 إذا الماستر أرسل خطأ 409 (Conflict)، فهذا يعني أن الملف حُذف!
+                    if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                        System.out.println("\n❌ KRİTİK HATA: Yükleme sırasında dosya sunucudan silindi!");
+                        System.out.println("🛑 Yükleme işlemi derhal iptal ediliyor.");
+                        uploadSuccess = false;
+                        break; // نكسر حلقة الرفع فوراً!
+                    }
+                }
 
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
                     System.out.println("❌ Başarısız: Master'dan uygun Worker adresi alınamadı.");
