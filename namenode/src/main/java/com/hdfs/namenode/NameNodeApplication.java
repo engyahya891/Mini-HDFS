@@ -31,13 +31,23 @@ public class NameNodeApplication {
 
             // 1️⃣ Akıllı "Arıza Tespit Monitörü" başlatılıyor 🕵️‍♂️
             new Thread(() -> {
-                System.out.println("⏳ Arıza Tespit Monitörü Başlatıldı...");
+                System.out.println("⏳ Arıza Tespit Monitörü Başlatıldı... (İlk 30 saniye Güvenli Mod / Safe Mode)");
+
+                // 🟢 تحديد وقت إقلاع الماستر لحساب فترة الوضع الآمن
+                LocalDateTime startupTime = LocalDateTime.now();
+
                 while (true) {
                     try {
                         Thread.sleep(5000); // Her 5 saniyede bir kontrol eder
 
-                        List<WorkerNode> workers = workerRepository.findAll();
                         LocalDateTime now = LocalDateTime.now();
+
+                        // 🟢 فترة السماح (Safe Mode): تجاهل الفحص في أول 30 ثانية
+                        if (Duration.between(startupTime, now).getSeconds() < 30) {
+                            continue; // العودة لبداية الحلقة بصمت
+                        }
+
+                        List<WorkerNode> workers = workerRepository.findAll();
 
                         for (WorkerNode worker : workers) {
                             if (worker.isActive()) {
