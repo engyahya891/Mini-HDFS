@@ -148,6 +148,7 @@ public class ClientApplication implements CommandLineRunner {
     }
 
     // 🟢 --- Upload (مزودة بقياس الأداء) ---
+    // 🟢 --- Upload (المعدلة والمحمية بشكل كامل) ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -163,7 +164,7 @@ public class ClientApplication implements CommandLineRunner {
 
         // ⏱️ بدء المؤقت
         long startTime = System.currentTimeMillis();
-        boolean uploadSuccess = false;
+        boolean uploadSuccess = true; // 🟢 نفترض النجاح مبدئياً
 
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
@@ -183,17 +184,21 @@ public class ClientApplication implements CommandLineRunner {
                 try {
                     response = restTemplate.postForObject(allocateUrl, request, BlockAllocation.class);
                 } catch (HttpClientErrorException e) {
-                    // 🟢 إذا الماستر أرسل خطأ 409 (Conflict)، فهذا يعني أن الملف حُذف!
+                    // 🛑 التقاط خطأ الحذف أثناء الرفع
                     if (e.getStatusCode() == HttpStatus.CONFLICT) {
                         System.out.println("\n❌ KRİTİK HATA: Yükleme sırasında dosya sunucudan silindi!");
                         System.out.println("🛑 Yükleme işlemi derhal iptal ediliyor.");
-                        uploadSuccess = false;
-                        break; // نكسر حلقة الرفع فوراً!
+                        uploadSuccess = false; // نعلن الفشل!
+                        break; // نكسر الحلقة ونتوقف عن الرفع
                     }
                 }
 
+                // إذا فشل الرفع لأي سبب، تأكد من كسر الحلقة
+                if (!uploadSuccess) break;
+
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
                     System.out.println("❌ Başarısız: Master'dan uygun Worker adresi alınamadı.");
+                    uploadSuccess = false;
                     break;
                 }
 
@@ -225,18 +230,25 @@ public class ClientApplication implements CommandLineRunner {
                     }
                 }
                 blockIndex++;
+            } // 🔚 نهاية حلقة الرفع
+
+            // 🟢 التعديل الأهم: لا نحتفل ولا نطبع رسالة النجاح إلا إذا كانت uploadSuccess ما زالت true
+            if (uploadSuccess) {
+                System.out.println("\n🎉 Yükleme tamamlandı!");
             }
-            uploadSuccess = true;
-            System.out.println("\n🎉 Yükleme tamamlandı!");
 
         } catch (Exception e) {
             System.out.println("❌ Yükleme hatası: " + e.getMessage());
+            uploadSuccess = false;
         }
 
-        // ⏱️ إيقاف المؤقت وحساب الأداء
+        // 🟢 إيقاف المؤقت وحساب الأداء (فقط في حال النجاح التام)
         if (uploadSuccess) {
             long endTime = System.currentTimeMillis();
             printPerformanceReport(fileSize, startTime, endTime, "Upload");
+        } else {
+            // رسالة صغيرة توضح أن التقرير لن يطبع بسبب الإلغاء
+            System.out.println("⚠️ İşlem yarıda kesildiği için performans raporu oluşturulmadı.");
         }
     }
 
