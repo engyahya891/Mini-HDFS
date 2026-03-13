@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping("/api/file")
@@ -127,7 +128,8 @@ public class FileController {
         return ResponseEntity.ok(workerUrl);
     }
 
-    // 🔴 4. الحذف (Delete) - تم التصحيح هنا
+    // 🔴 4. الحذف (Delete) - النسخة المدرعة والمحمية ضد إحياء البيانات
+    @Transactional // 🟢 إضافة حاسمة لضمان تنفيذ مسح قاعدة البيانات كعملية واحدة (Atomic)
     @DeleteMapping("/delete/{filename:.+}")
     public ResponseEntity<String> deleteFile(
             @PathVariable String filename,
@@ -135,7 +137,7 @@ public class FileController {
 
         System.out.println("🗑️ Master: Silme isteği -> " + filename + " (" + owner + ")");
 
-        // 🛠️ التصحيح: نطبق نفس منطق البحث الموجود في locateFile
+        // 1. البحث عن الملف
         FileMetadata fileMeta = fileRepository.findByFilename(filename);
 
         if (fileMeta == null) {
@@ -148,7 +150,6 @@ public class FileController {
             } catch (Exception e) {}
         }
 
-        // الآن نتحقق
         if (fileMeta == null) {
             System.out.println("❌ HATA: Dosya veritabanında bulunamadı!");
             return ResponseEntity.status(404).body("HATA: Dosya bulunamadı!");
@@ -158,29 +159,24 @@ public class FileController {
             return ResponseEntity.status(403).body("HATA: Bu dosyayı silmeye yetkiniz yok!");
         }
 
-        // نحتفظ بالاسم الحقيقي للملف لاستخدامه في الحذف
         String realFilename = fileMeta.getFilename();
 
         try {
-            // 1. حذف من الداتا بيز (Metadata)
-            fileRepository.delete(fileMeta);
-
-            // 2. حذف البلوكات من الداتا بيز
+            // 🟢 التعديل المعماري: مسح البلوكات (الأبناء) أولاً لتجنب إحياء الكائنات
             List<BlockMetadata> allBlocks = blockRepository.findAll();
             for (BlockMetadata block : allBlocks) {
-                // نستخدم الاسم الحقيقي هنا للمقارنة
                 if (Objects.equals(block.getFilename(), realFilename) ||
                         (block.getBlockId() != null && block.getBlockId().startsWith(realFilename))) {
                     blockRepository.delete(block);
                 }
             }
 
-            // 3. إرسال أمر الحذف للـ Workers
-            List<WorkerNode> workers = workerRepository.findAll();
+            // 🟢 ضربة قاضية: مسح الملف الأصلي (الأب) باستخدام ID مباشرة
+            fileRepository.deleteById(realFilename);
 
-            // نستخدم الاسم الحقيقي للتشفير عند الإرسال للووركر
-            String base64Name = Base64.getUrlEncoder()
-                    .encodeToString(realFilename.getBytes(StandardCharsets.UTF_8));
+            // 2. إرسال أمر الحذف للـ Workers
+            List<WorkerNode> workers = workerRepository.findAll();
+            String base64Name = Base64.getUrlEncoder().encodeToString(realFilename.getBytes(StandardCharsets.UTF_8));
 
             for (WorkerNode worker : workers) {
                 if (worker.isActive()) {
@@ -200,7 +196,6 @@ public class FileController {
             e.printStackTrace();
             return ResponseEntity.status(500).body("Veritabanı hatası: " + e.getMessage());
         }
-
     }
 
     // 🟢 دالة جديدة: البحث عن عنوان Worker يملك "جزء معين (Block)" وليس الملف بالكامل
