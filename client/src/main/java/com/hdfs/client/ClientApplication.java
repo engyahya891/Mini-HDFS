@@ -263,7 +263,7 @@ public class ClientApplication implements CommandLineRunner {
                     String partName = filename + "_part_" + blockIndex;
                     String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString()).replace("+", "%20");
 
-                    // 🟢 التعديل الجوهري: نسأل الماستر عن مكان *هذا الجزء تحديداً*
+                    // نسأل الماستر عن مكان *هذا الجزء تحديداً*
                     String locateBlockUrl = MASTER_URL + "/api/file/locate-block/" + encodedPartName;
                     String workerUrl = null;
 
@@ -271,7 +271,7 @@ public class ClientApplication implements CommandLineRunner {
                         ResponseEntity<String> masterResp = restTemplate.getForEntity(locateBlockUrl, String.class);
                         workerUrl = masterResp.getBody();
                     } catch (HttpClientErrorException e) {
-                        // 🛑 إذا رد الماستر بـ 404، يعني لم يعد هناك أجزاء أخرى (اكتمل الملف)
+                        // إذا رد الماستر بـ 404، يعني لم يعد هناك أجزاء أخرى (اكتمل الملف)
                         if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
                             moreParts = false;
                             continue;
@@ -283,7 +283,7 @@ public class ClientApplication implements CommandLineRunner {
                         continue;
                     }
 
-                    // 🟢 الآن نذهب للـ Worker الذي حدده الماستر لنحمل هذا الجزء فقط
+                    // الآن نذهب للـ Worker الذي حدده الماستر لنحمل هذا الجزء فقط
                     String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
@@ -298,10 +298,23 @@ public class ClientApplication implements CommandLineRunner {
                         System.out.println("\n❌ " + partName + " indirilirken " + workerUrl + " düğümünde hata oluştu!");
                         moreParts = false;
                     }
+                } // 🔚 نهاية حلقة while
+
+                // 🟢 التعديل الجديد: التحقق النهائي (Final Verification)
+                // لنتأكد أن الملف لم يُحذف من الماستر أثناء قيامنا بتحميله
+                boolean fileStillExists = true;
+                try {
+                    restTemplate.getForEntity(locateUrl, String.class);
+                } catch (HttpClientErrorException e) {
+                    fileStillExists = false; // الماستر يقول الملف لم يعد موجوداً!
                 }
 
-                if (downloadedBlocks > 0) {
+                // 🟢 التقييم النهائي للنجاح
+                if (downloadedBlocks > 0 && fileStillExists) {
                     success = true;
+                } else if (!fileStillExists) {
+                    System.out.println("\n❌ KRİTİK HATA: İndirme işlemi sırasında dosya sunucudan silindi veya değiştirildi!");
+                    success = false; // نلغي النجاح لكي يتم حذف الملف الناقص
                 }
 
             } catch (Exception e) {
@@ -312,7 +325,7 @@ public class ClientApplication implements CommandLineRunner {
             if (finalFile.exists() && (!success || finalFile.length() == 0)) {
                 finalFile.delete();
                 if (!success && downloadedBlocks > 0) {
-                    System.out.println("\n⚠️ İndirme yarım kaldı (" + downloadedBlocks + " blok), bozuk dosya silindi.");
+                    System.out.println("⚠️ İndirme iptal edildi, eksik/bozuk dosya temizlendi.");
                 }
             } else if (success) {
                 System.out.println("\n🎉 Dosya başarıyla indirildi: " + finalFile.getAbsolutePath());
