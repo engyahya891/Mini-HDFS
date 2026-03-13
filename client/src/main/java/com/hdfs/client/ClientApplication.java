@@ -9,7 +9,7 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.HttpClientErrorException; // 🟢 استيراد مهم جداً للأخطاء
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
@@ -147,7 +147,7 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // --- Upload ---
+    // 🟢 --- Upload (مزودة بقياس الأداء) ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -161,6 +161,10 @@ public class ClientApplication implements CommandLineRunner {
 
         System.out.println("📦 Dosya: " + file.getName() + " (" + totalBlocks + " blok) yükleniyor...");
 
+        // ⏱️ بدء المؤقت
+        long startTime = System.currentTimeMillis();
+        boolean uploadSuccess = false;
+
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
             int bytesRead;
@@ -172,7 +176,6 @@ public class ClientApplication implements CommandLineRunner {
                 BlockAllocation request = new BlockAllocation();
                 request.setBlockIndex(blockIndex);
 
-                // إرسال المالك واسم الملف في الرابط
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
                         + "&filename=" + file.getName();
 
@@ -213,14 +216,21 @@ public class ClientApplication implements CommandLineRunner {
                 }
                 blockIndex++;
             }
+            uploadSuccess = true;
             System.out.println("\n🎉 Yükleme tamamlandı!");
 
         } catch (Exception e) {
             System.out.println("❌ Yükleme hatası: " + e.getMessage());
         }
+
+        // ⏱️ إيقاف المؤقت وحساب الأداء
+        if (uploadSuccess) {
+            long endTime = System.currentTimeMillis();
+            printPerformanceReport(fileSize, startTime, endTime, "Upload");
+        }
     }
 
-    // --- Download (المعدلة والمصححة) ---
+    // 🟢 --- Download (مزودة بقياس الأداء) ---
     private void downloadFile(String filename) {
         System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
@@ -228,19 +238,15 @@ public class ClientApplication implements CommandLineRunner {
 
         try {
             String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
-
-            // 1. أولاً: التحقق من وجود الملف وصلاحية المستخدم
             String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName + "?owner=" + CURRENT_USER;
             String workerUrl = null;
 
             try {
-                // نستخدم getForEntity لنتمكن de التقاط الـ StatusCode
                 ResponseEntity<String> response = restTemplate.getForEntity(locateUrl, String.class);
                 workerUrl = response.getBody();
             } catch (HttpClientErrorException e) {
-                // 🛑 إذا رد الماستر بـ 404 أو 403، ندخل هنا
-                System.out.println("❌ HATA: " + e.getResponseBodyAsString()); // يطبع رسالة الماستر (مثل: الملف غير موجود)
-                return; // نخرج فوراً ولا ننشئ الملف
+                System.out.println("❌ HATA: " + e.getResponseBodyAsString());
+                return;
             }
 
             if (workerUrl == null) {
@@ -248,9 +254,11 @@ public class ClientApplication implements CommandLineRunner {
                 return;
             }
 
-            // 2. ثانياً: إنشاء الملف وبدء التحميل
             File finalFile = new File(targetFolder + filename);
             boolean success = false;
+
+            // ⏱️ بدء المؤقت قبل أول اتصال حقيقي لتحميل البيانات
+            long startTime = System.currentTimeMillis();
 
             try (FileOutputStream fos = new FileOutputStream(finalFile)) {
                 int blockIndex = 1;
@@ -274,17 +282,20 @@ public class ClientApplication implements CommandLineRunner {
                         moreParts = false;
                     }
                 }
-                success = true; // تم التحميل للنهاية
+                success = true;
             } catch (Exception e) {
                 System.out.println("\n❌ Yazma hatası: " + e.getMessage());
             }
 
-            // 3. التنظيف: إذا فشلت العملية أو كان الملف فارغاً، نحذفه
             if (finalFile.exists() && (!success || finalFile.length() == 0)) {
                 finalFile.delete();
                 if (!success) System.out.println("\n⚠️ İndirme yarım kaldı, bozuk dosya silindi.");
             } else {
                 System.out.println("\n🎉 Dosya başarıyla indirildi: " + finalFile.getAbsolutePath());
+
+                // ⏱️ إيقاف المؤقت وحساب الأداء
+                long endTime = System.currentTimeMillis();
+                printPerformanceReport(finalFile.length(), startTime, endTime, "Download");
             }
 
         } catch (Exception e) {
@@ -292,16 +303,13 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // --- Delete (المعدلة والمصححة) ---
+    // --- Delete ---
     private void deleteFileRequest(String filename) {
         System.out.println("🗑️ Siliniyor: " + filename + "...");
         try {
             String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
-
-            // إرسال المالك في الرابط
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName + "?owner=" + CURRENT_USER;
 
-            // استخدام exchange لالتقاط رموز الخطأ
             ResponseEntity<String> response = restTemplate.exchange(
                     deleteUrl,
                     HttpMethod.DELETE,
@@ -316,7 +324,6 @@ public class ClientApplication implements CommandLineRunner {
             }
 
         } catch (HttpClientErrorException e) {
-            // 🛑 هنا نلتقط رسالة الخطأ الحقيقية من الماستر (404, 403)
             System.out.println("❌ İşlem Başarısız: " + e.getResponseBodyAsString());
         } catch (Exception e) {
             System.out.println("❌ Hata: " + e.getMessage());
@@ -330,4 +337,21 @@ public class ClientApplication implements CommandLineRunner {
             else { System.out.print("\033[H\033[2J"); System.out.flush(); }
         } catch (Exception e) { for (int i = 0; i < 50; i++) System.out.println(); }
     }
+
+    // 🟢 دالة جديدة مخصصة لطباعة تقرير الأداء (Performance Report)
+    private void printPerformanceReport(long fileSizeBytes, long startTimeMs, long endTimeMs, String operationType) {
+        long durationMs = endTimeMs - startTimeMs;
+        if (durationMs == 0) durationMs = 1; // لتجنب القسمة على صفر إذا كان الملف صغيراً جداً
+
+        double durationSeconds = durationMs / 1000.0;
+        double fileSizeMB = fileSizeBytes / (1024.0 * 1024.0);
+        double throughputMBps = fileSizeMB / durationSeconds;
+
+        System.out.println("\n📊 --- PERFORMANS RAPORU (" + operationType + ") ---");
+        System.out.printf("   📏 Dosya Boyutu : %.2f MB\n", fileSizeMB);
+        System.out.printf("   ⏱️ Gecikme      : %.3f saniye\n", durationSeconds);
+        System.out.printf("   🚀 Aktarım Hızı : %.2f MB/s\n", throughputMBps);
+        System.out.println("-------------------------------------------");
+    }
+
 }
