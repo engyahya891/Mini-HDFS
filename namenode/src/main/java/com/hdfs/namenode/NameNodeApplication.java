@@ -15,7 +15,9 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Scanner;
+import java.util.stream.Collectors;
 
 @SpringBootApplication
 public class NameNodeApplication {
@@ -29,26 +31,22 @@ public class NameNodeApplication {
                                 BlockRepository blockRepository) {
         return args -> {
 
-            // 1️⃣ Akıllı "Arıza Tespit Monitörü" başlatılıyor 🕵️‍♂️
+            // 1️⃣ Akıllı "Arıza Tespit Monitörü" başlatılıyor 🕵️‍♂️ (Sadece ölüleri tespit eder)
             new Thread(() -> {
-                System.out.println("⏳ Arıza Tespit Monitörü Başlatıldı... (İlk 30 saniye Güvenli Mod / Safe Mode)");
-
-                // 🟢 تحديد وقت إقلاع الماستر لحساب فترة الوضع الآمن
+                System.out.println("⏳ Arıza Tespit Monitörü Başlatıldı...");
                 LocalDateTime startupTime = LocalDateTime.now();
 
                 while (true) {
                     try {
-                        Thread.sleep(5000); // Her 5 saniyede bir kontrol eder
-
+                        Thread.sleep(5000); // Her 5 saniyede bir kontrol
                         LocalDateTime now = LocalDateTime.now();
 
-                        // 🟢 فترة السماح (Safe Mode): تجاهل الفحص في أول 30 ثانية
+                        // 🟢 İlk 30 saniye Safe Mode
                         if (Duration.between(startupTime, now).getSeconds() < 30) {
-                            continue; // العودة لبداية الحلقة بصمت
+                            continue;
                         }
 
                         List<WorkerNode> workers = workerRepository.findAll();
-
                         for (WorkerNode worker : workers) {
                             if (worker.isActive()) {
                                 Duration duration = Duration.between(worker.getLastHeartbeat(), now);
@@ -56,13 +54,8 @@ public class NameNodeApplication {
                                 // 15 saniyeden fazla heartbeat alınamadıysa düğüm ölü kabul edilir
                                 if (duration.getSeconds() > 15) {
                                     worker.setActive(false);
-                                    workerRepository.save(worker); // حفظ حالة الموت في الداتا بيز
-
+                                    workerRepository.save(worker); // حفظ حالة الموت
                                     System.out.println("🔴 UYARI: Çalışan düğüm zaman aşımına uğradı (Timeout): " + worker.getUrl());
-
-                                    // 🟢 هنا نطلق "الشفاء الذاتي" بمجرد اكتشاف الموت
-                                    System.out.println("🔄 Otomatik replikasyon (Kurtarma) süreci başlatılıyor...");
-                                    recoverDeadWorkerBlocks(worker, workerRepository, blockRepository);
                                 }
                             }
                         }
@@ -72,7 +65,89 @@ public class NameNodeApplication {
                 }
             }).start();
 
-            // 2️⃣ Yönetici Kontrol Paneli (CLI) başlatılıyor ⌨️
+            // 2️⃣ 🟢 YENİ: Global Replikasyon Tarayıcısı (Scanner) 🔄
+            // هذا هو الحل السحري للمشكلة التي اكتشفتها! يبحث دائماً عن البلوكات الناقصة.
+            new Thread(() -> {
+                System.out.println("🔍 Global Replikasyon Tarayıcısı Başlatıldı... (Eksik kopyaları arayacak)");
+                RestTemplate restTemplate = new RestTemplate();
+
+                while (true) {
+                    try {
+                        Thread.sleep(15000); // Her 15 saniyede bir tüm sistemi tarar
+
+                        List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
+                                .filter(WorkerNode::isActive)
+                                .collect(Collectors.toList());
+
+                        // Eğer 2'den az aktif worker varsa, kopyalama yapılamaz (bekle)
+                        if (activeWorkers.size() < 2) continue;
+
+                        // 1. Sistemdeki tüm benzersiz blok ID'lerini bul
+                        List<String> uniqueBlockIds = blockRepository.findAll().stream()
+                                .map(BlockMetadata::getBlockId)
+                                .filter(Objects::nonNull)
+                                .distinct()
+                                .collect(Collectors.toList());
+
+                        // 2. Her bir blok için kopya sayısını kontrol et
+                        for (String blockId : uniqueBlockIds) {
+                            List<BlockMetadata> copies = blockRepository.findByBlockId(blockId);
+
+                            // Bu bloğa sahip olan "Aktif" worker'ları bul
+                            List<WorkerNode> workersHavingBlock = copies.stream()
+                                    .map(BlockMetadata::getWorker)
+                                    .filter(WorkerNode::isActive)
+                                    .collect(Collectors.toList());
+
+                            int activeCopyCount = workersHavingBlock.size();
+
+                            // Eğer 1 kopya varsa (veya hedeflenen 2 kopyadan azsa), replikasyon gerekir!
+                            if (activeCopyCount > 0 && activeCopyCount < 2) {
+                                System.out.println("\n⚠️ [Scanner] Eksik kopya tespit edildi: " + blockId + " (Mevcut aktif kopya: " + activeCopyCount + ")");
+
+                                WorkerNode source = workersHavingBlock.get(0); // Hayatta kalan düğüm
+                                WorkerNode target = null; // Yeni eklenecek hedef düğüm
+
+                                // Hedef düğümü seç (bu bloğa sahip olmayan aktif bir düğüm olmalı)
+                                for (WorkerNode w : activeWorkers) {
+                                    boolean hasBlock = workersHavingBlock.stream().anyMatch(active -> active.getUrl().equals(w.getUrl()));
+                                    if (!hasBlock) {
+                                        target = w;
+                                        break;
+                                    }
+                                }
+
+                                if (target != null) {
+                                    System.out.println("🚀 [Scanner] EMR: " + source.getUrl() + " -> " + target.getUrl() + " [" + blockId + "]");
+                                    try {
+                                        String replicateUrl = source.getUrl() + "/api/file/replicate";
+                                        Map<String, String> requestData = new HashMap<>();
+                                        requestData.put("blockId", blockId);
+                                        requestData.put("targetUrl", target.getUrl());
+
+                                        restTemplate.postForObject(replicateUrl, requestData, String.class);
+                                        System.out.println("✅ [Scanner] Kopyalama emri başarıyla iletildi.");
+
+                                        // Bir sonrakine geçmeden önce biraz bekle (Ağı yormamak için)
+                                        Thread.sleep(1000);
+                                    } catch (Exception e) {
+                                        System.out.println("❌ [Scanner] Kopya emri gönderilemedi: " + e.getMessage());
+                                    }
+                                } else {
+                                    // Sadece debug için (Sürekli ekrana basmamak için kapatılabilir)
+                                    // System.out.println("⏳ [Scanner] " + blockId + " için boşta uygun Worker bekleniyor...");
+                                }
+                            } else if (activeCopyCount == 0) {
+                                System.out.println("💀 [Scanner] KRİTİK VERİ KAYBI: " + blockId + " için hiç aktif kopya kalmadı!");
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.out.println("⚠️ Scanner Hatası: " + e.getMessage());
+                    }
+                }
+            }).start();
+
+            // 3️⃣ Yönetici Kontrol Paneli (CLI) başlatılıyor ⌨️
             new Thread(() -> {
                 Scanner scanner = new Scanner(System.in);
                 System.out.println("\n========================================");
@@ -84,6 +159,7 @@ public class NameNodeApplication {
                     System.out.print("Yönetici> ");
                     String input = scanner.nextLine();
                     String[] parts = input.trim().split("\\s+");
+                    if (parts.length == 0 || parts[0].isEmpty()) continue;
                     String command = parts[0].toLowerCase();
 
                     try {
@@ -126,6 +202,7 @@ public class NameNodeApplication {
                             case "exit":
                                 System.out.println("👋 Konsol kapatılıyor...");
                                 scanner.close();
+                                System.exit(0);
                                 return;
 
                             default:
@@ -137,80 +214,5 @@ public class NameNodeApplication {
                 }
             }).start();
         };
-    }
-
-    // 🚑 دالة الشفاء الذاتي: تعويض البلوكات المفقودة من العقدة الميتة (توضع هنا خارج الـ Bean وداخل الكلاس)
-    private void recoverDeadWorkerBlocks(WorkerNode deadWorker, WorkerRepository workerRepo, BlockRepository blockRepo) {
-        System.out.println("\n🔍 [Kurtarma] Ölü düğümdeki bloklar aranıyor: " + deadWorker.getUrl());
-
-        // 1. ماذا خسرنا؟
-        List<BlockMetadata> lostBlocks = blockRepo.findByWorker(deadWorker);
-
-        if (lostBlocks.isEmpty()) {
-            System.out.println("✅ [Kurtarma] Ölü düğümde kurtarılacak blok yok. Sistem güvende.");
-            return;
-        }
-
-        List<WorkerNode> allWorkers = workerRepo.findAll();
-        RestTemplate restTemplate = new RestTemplate();
-
-        // 2. معالجة كل بلوك مفقود
-        for (BlockMetadata lostBlock : lostBlocks) {
-            String blockId = lostBlock.getBlockId();
-            System.out.println("⚠️ [Kurtarma] Kayıp blok tespit edildi: " + blockId);
-
-            // 3. البحث عن ناجي
-            List<BlockMetadata> copies = blockRepo.findByBlockId(blockId);
-            WorkerNode survivor = null;
-
-            for (BlockMetadata copy : copies) {
-                WorkerNode w = copy.getWorker();
-                if (w.isActive() && !w.getUrl().equals(deadWorker.getUrl())) {
-                    survivor = w;
-                    break;
-                }
-            }
-
-            if (survivor == null) {
-                System.out.println("❌ [Kurtarma] KRİTİK HATA: " + blockId + " için hayatta kalan kopya bulunamadı! VERİ KAYBI!");
-                continue;
-            }
-
-            // 4. البحث عن هدف
-            WorkerNode target = null;
-            for (WorkerNode w : allWorkers) {
-                if (w.isActive() && !w.getUrl().equals(deadWorker.getUrl()) && !w.getUrl().equals(survivor.getUrl())) {
-                    boolean hasBlock = copies.stream().anyMatch(c -> c.getWorker().getUrl().equals(w.getUrl()));
-                    if (!hasBlock) {
-                        target = w;
-                        break;
-                    }
-                }
-            }
-
-            if (target == null) {
-                System.out.println("⚠️ [Kurtarma] " + blockId + " için uygun hedef düğüm bulunamadı (Yeterli aktif Worker yok).");
-                continue;
-            }
-
-            // 5. إرسال أمر النسخ الفعلي عبر الشبكة للناجي
-            System.out.println("🚀 [Kurtarma] EMR: " + survivor.getUrl() + " -> " + target.getUrl() + " [" + blockId + "]");
-
-            try {
-                // نطلب من الناجي أن ينسخ الملف إلى الهدف
-                String replicateUrl = survivor.getUrl() + "/api/file/replicate";
-
-                // نرسل له اسم الملف وعنوان الهدف
-                Map<String, String> requestData = new HashMap<>();
-                requestData.put("blockId", blockId);
-                requestData.put("targetUrl", target.getUrl());
-
-                restTemplate.postForObject(replicateUrl, requestData, String.class);
-                System.out.println("✅ [Kurtarma] Kopyalama emri başarıyla iletildi.");
-
-            } catch (Exception e) {
-                System.out.println("❌ [Kurtarma] Kopya emri gönderilemedi: " + e.getMessage());
-            }
-        }
     }
 }
