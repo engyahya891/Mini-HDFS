@@ -230,16 +230,14 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // 🟢 --- Download (مزودة بقياس الأداء) ---
-    // 🟢 --- Download (المعدلة لإصلاح الفشل الصامت) ---
-    // 🟢 --- Download (المعدلة لتعمل مع الأنظمة الموزعة الحقيقية بشكل بلوكات) ---
+    // 🟢 --- Download (المعدلة والمحمية ضد المسح أثناء التحميل) ---
     private void downloadFile(String filename) {
         System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
         new File(targetFolder).mkdirs();
 
         try {
-            // 1. التحقق المبدئي: هل الملف موجود أصلاً وهل أملك صلاحية؟
+            // 1. التحقق المبدئي
             String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
             String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName + "?owner=" + CURRENT_USER;
 
@@ -263,7 +261,7 @@ public class ClientApplication implements CommandLineRunner {
                     String partName = filename + "_part_" + blockIndex;
                     String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString()).replace("+", "%20");
 
-                    // نسأل الماستر عن مكان *هذا الجزء تحديداً*
+                    // نسأل الماستر عن مكان هذا الجزء
                     String locateBlockUrl = MASTER_URL + "/api/file/locate-block/" + encodedPartName;
                     String workerUrl = null;
 
@@ -271,7 +269,6 @@ public class ClientApplication implements CommandLineRunner {
                         ResponseEntity<String> masterResp = restTemplate.getForEntity(locateBlockUrl, String.class);
                         workerUrl = masterResp.getBody();
                     } catch (HttpClientErrorException e) {
-                        // إذا رد الماستر بـ 404، يعني لم يعد هناك أجزاء أخرى (اكتمل الملف)
                         if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
                             moreParts = false;
                             continue;
@@ -283,7 +280,7 @@ public class ClientApplication implements CommandLineRunner {
                         continue;
                     }
 
-                    // الآن نذهب للـ Worker الذي حدده الماستر لنحمل هذا الجزء فقط
+                    // التحميل من الووركر
                     String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
@@ -300,28 +297,28 @@ public class ClientApplication implements CommandLineRunner {
                     }
                 } // 🔚 نهاية حلقة while
 
-                // 🟢 التعديل الجديد: التحقق النهائي (Final Verification)
-                // لنتأكد أن الملف لم يُحذف من الماستر أثناء قيامنا بتحميله
+                // 🟢 التحقق النهائي لضمان عدم تعرض الملف للحذف أثناء عملية التحميل
                 boolean fileStillExists = true;
                 try {
                     restTemplate.getForEntity(locateUrl, String.class);
-                } catch (HttpClientErrorException e) {
-                    fileStillExists = false; // الماستر يقول الملف لم يعد موجوداً!
+                } catch (Exception e) {
+                    // استخدام Exception للقبض على أي نوع من الأخطاء من الماستر
+                    fileStillExists = false;
                 }
 
-                // 🟢 التقييم النهائي للنجاح
+                // 🟢 التقييم النهائي
                 if (downloadedBlocks > 0 && fileStillExists) {
                     success = true;
                 } else if (!fileStillExists) {
                     System.out.println("\n❌ KRİTİK HATA: İndirme işlemi sırasında dosya sunucudan silindi veya değiştirildi!");
-                    success = false; // نلغي النجاح لكي يتم حذف الملف الناقص
+                    success = false; // نلغي النجاح لكي يتم مسح الملف التالف
                 }
 
             } catch (Exception e) {
                 System.out.println("\n❌ Yazma hatası: " + e.getMessage());
             }
 
-            // التنظيف وتقييم الأداء
+            // التنظيف في حال الفشل
             if (finalFile.exists() && (!success || finalFile.length() == 0)) {
                 finalFile.delete();
                 if (!success && downloadedBlocks > 0) {
@@ -345,7 +342,7 @@ public class ClientApplication implements CommandLineRunner {
             // 1. التشفير الصحيح للمسافات
             String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
 
-            // 2. بناء الرابط (هذا السطر كان مفقوداً عندك)
+            // 2. بناء الرابط
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName + "?owner=" + CURRENT_USER;
 
             ResponseEntity<String> response = restTemplate.exchange(
@@ -376,10 +373,10 @@ public class ClientApplication implements CommandLineRunner {
         } catch (Exception e) { for (int i = 0; i < 50; i++) System.out.println(); }
     }
 
-    // 🟢 دالة جديدة مخصصة لطباعة تقرير الأداء (Performance Report)
+    // 🟢 دالة جديدة مخصصة لطباعة تقرير الأداء
     private void printPerformanceReport(long fileSizeBytes, long startTimeMs, long endTimeMs, String operationType) {
         long durationMs = endTimeMs - startTimeMs;
-        if (durationMs == 0) durationMs = 1; // لتجنب القسمة على صفر إذا كان الملف صغيراً جداً
+        if (durationMs == 0) durationMs = 1;
 
         double durationSeconds = durationMs / 1000.0;
         double fileSizeMB = fileSizeBytes / (1024.0 * 1024.0);
@@ -391,5 +388,4 @@ public class ClientApplication implements CommandLineRunner {
         System.out.printf("   🚀 Aktarım Hızı : %.2f MB/s\n", throughputMBps);
         System.out.println("-------------------------------------------");
     }
-
 }
