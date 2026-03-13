@@ -54,12 +54,11 @@ public class DataController {
     }
 
     // 📤 Okuma (Read)
-    @GetMapping("/read/{filename}")
+    @GetMapping("/read/{filename:.+}")
     public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
         try {
-            String decodedFileName =
-                    URLDecoder.decode(filename, StandardCharsets.UTF_8.toString())
-                            .replace("+", " ");
+            // 🟢 فك التشفير القياسي يكفي تماماً لأن العميل أصبح يرسل %20
+            String decodedFileName = java.net.URLDecoder.decode(filename, java.nio.charset.StandardCharsets.UTF_8.toString());
 
             Path filePath = Paths.get(getStorageDir())
                     .resolve(decodedFileName)

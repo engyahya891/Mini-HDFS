@@ -231,33 +231,28 @@ public class ClientApplication implements CommandLineRunner {
     }
 
     // 🟢 --- Download (مزودة بقياس الأداء) ---
+    // 🟢 --- Download (المعدلة لإصلاح الفشل الصامت) ---
+    // 🟢 --- Download (المعدلة لتعمل مع الأنظمة الموزعة الحقيقية بشكل بلوكات) ---
     private void downloadFile(String filename) {
         System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
         new File(targetFolder).mkdirs();
 
         try {
-            String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
+            // 1. التحقق المبدئي: هل الملف موجود أصلاً وهل أملك صلاحية؟
+            String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
             String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName + "?owner=" + CURRENT_USER;
-            String workerUrl = null;
 
             try {
-                ResponseEntity<String> response = restTemplate.getForEntity(locateUrl, String.class);
-                workerUrl = response.getBody();
+                restTemplate.getForEntity(locateUrl, String.class);
             } catch (HttpClientErrorException e) {
                 System.out.println("❌ HATA: " + e.getResponseBodyAsString());
                 return;
             }
 
-            if (workerUrl == null) {
-                System.out.println("❌ Hata: Bilinmeyen bir hata oluştu.");
-                return;
-            }
-
             File finalFile = new File(targetFolder + filename);
             boolean success = false;
-
-            // ⏱️ بدء المؤقت قبل أول اتصال حقيقي لتحميل البيانات
+            int downloadedBlocks = 0;
             long startTime = System.currentTimeMillis();
 
             try (FileOutputStream fos = new FileOutputStream(finalFile)) {
@@ -266,34 +261,61 @@ public class ClientApplication implements CommandLineRunner {
 
                 while (moreParts) {
                     String partName = filename + "_part_" + blockIndex;
-                    String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString());
+                    String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString()).replace("+", "%20");
+
+                    // 🟢 التعديل الجوهري: نسأل الماستر عن مكان *هذا الجزء تحديداً*
+                    String locateBlockUrl = MASTER_URL + "/api/file/locate-block/" + encodedPartName;
+                    String workerUrl = null;
+
+                    try {
+                        ResponseEntity<String> masterResp = restTemplate.getForEntity(locateBlockUrl, String.class);
+                        workerUrl = masterResp.getBody();
+                    } catch (HttpClientErrorException e) {
+                        // 🛑 إذا رد الماستر بـ 404، يعني لم يعد هناك أجزاء أخرى (اكتمل الملف)
+                        if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                            moreParts = false;
+                            continue;
+                        }
+                    }
+
+                    if (workerUrl == null) {
+                        moreParts = false;
+                        continue;
+                    }
+
+                    // 🟢 الآن نذهب للـ Worker الذي حدده الماستر لنحمل هذا الجزء فقط
                     String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
                         ResponseEntity<byte[]> response = restTemplate.getForEntity(downloadUrl, byte[].class);
                         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                            System.out.print(".");
+                            System.out.print("."); // مؤشر تقدم
                             fos.write(response.getBody());
+                            downloadedBlocks++;
                             blockIndex++;
-                        } else {
-                            moreParts = false;
                         }
                     } catch (Exception e) {
+                        System.out.println("\n❌ " + partName + " indirilirken " + workerUrl + " düğümünde hata oluştu!");
                         moreParts = false;
                     }
                 }
-                success = true;
+
+                if (downloadedBlocks > 0) {
+                    success = true;
+                }
+
             } catch (Exception e) {
                 System.out.println("\n❌ Yazma hatası: " + e.getMessage());
             }
 
+            // التنظيف وتقييم الأداء
             if (finalFile.exists() && (!success || finalFile.length() == 0)) {
                 finalFile.delete();
-                if (!success) System.out.println("\n⚠️ İndirme yarım kaldı, bozuk dosya silindi.");
-            } else {
+                if (!success && downloadedBlocks > 0) {
+                    System.out.println("\n⚠️ İndirme yarım kaldı (" + downloadedBlocks + " blok), bozuk dosya silindi.");
+                }
+            } else if (success) {
                 System.out.println("\n🎉 Dosya başarıyla indirildi: " + finalFile.getAbsolutePath());
-
-                // ⏱️ إيقاف المؤقت وحساب الأداء
                 long endTime = System.currentTimeMillis();
                 printPerformanceReport(finalFile.length(), startTime, endTime, "Download");
             }
@@ -307,7 +329,10 @@ public class ClientApplication implements CommandLineRunner {
     private void deleteFileRequest(String filename) {
         System.out.println("🗑️ Siliniyor: " + filename + "...");
         try {
-            String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString());
+            // 1. التشفير الصحيح للمسافات
+            String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
+
+            // 2. بناء الرابط (هذا السطر كان مفقوداً عندك)
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName + "?owner=" + CURRENT_USER;
 
             ResponseEntity<String> response = restTemplate.exchange(

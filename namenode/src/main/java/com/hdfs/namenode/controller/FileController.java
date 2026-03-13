@@ -200,5 +200,31 @@ public class FileController {
             e.printStackTrace();
             return ResponseEntity.status(500).body("Veritabanı hatası: " + e.getMessage());
         }
+
+    }
+
+    // 🟢 دالة جديدة: البحث عن عنوان Worker يملك "جزء معين (Block)" وليس الملف بالكامل
+    @GetMapping("/locate-block/{blockId:.+}")
+    public ResponseEntity<String> locateBlock(@PathVariable String blockId) {
+        try {
+            // فك التشفير
+            String decodedBlockId = URLDecoder.decode(blockId, StandardCharsets.UTF_8.toString());
+
+            // نبحث في الداتا بيز عن كل النسخ الخاصة بهذا الجزء
+            List<BlockMetadata> blocks = blockRepository.findByBlockId(decodedBlockId);
+
+            // نمر عليها ونعيد عنوان أول Worker "نشط" يملك هذا الجزء
+            for (BlockMetadata block : blocks) {
+                if (block.getWorker().isActive()) {
+                    return ResponseEntity.ok(block.getWorker().getUrl());
+                }
+            }
+
+            // إذا لم نجد الجزء (يعني وصلنا لنهاية الملف) نعيد 404
+            return ResponseEntity.status(404).body("BLOK_BULUNAMADI");
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("HATA: " + e.getMessage());
+        }
     }
 }
