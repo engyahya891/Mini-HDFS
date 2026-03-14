@@ -16,8 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Scanner;
-import java.util.stream.Collectors;
+import java.util.stream.Collectors; // تم إبقاء هذا
+// تم حذف import java.util.Scanner; لأننا لم نعد نحتاجها هنا
 
 @SpringBootApplication
 public class NameNodeApplication {
@@ -66,7 +66,6 @@ public class NameNodeApplication {
             }).start();
 
             // 2️⃣ 🟢 YENİ: Global Replikasyon Tarayıcısı (Scanner) 🔄
-            // هذا هو الحل السحري للمشكلة التي اكتشفتها! يبحث دائماً عن البلوكات الناقصة.
             new Thread(() -> {
                 System.out.println("🔍 Global Replikasyon Tarayıcısı Başlatıldı... (Eksik kopyaları arayacak)");
                 RestTemplate restTemplate = new RestTemplate();
@@ -128,14 +127,10 @@ public class NameNodeApplication {
                                         restTemplate.postForObject(replicateUrl, requestData, String.class);
                                         System.out.println("✅ [Scanner] Kopyalama emri başarıyla iletildi.");
 
-                                        // Bir sonrakine geçmeden önce biraz bekle (Ağı yormamak için)
                                         Thread.sleep(1000);
                                     } catch (Exception e) {
                                         System.out.println("❌ [Scanner] Kopya emri gönderilemedi: " + e.getMessage());
                                     }
-                                } else {
-                                    // Sadece debug için (Sürekli ekrana basmamak için kapatılabilir)
-                                    // System.out.println("⏳ [Scanner] " + blockId + " için boşta uygun Worker bekleniyor...");
                                 }
                             } else if (activeCopyCount == 0) {
                                 System.out.println("💀 [Scanner] KRİTİK VERİ KAYBI: " + blockId + " için hiç aktif kopya kalmadı!");
@@ -147,72 +142,8 @@ public class NameNodeApplication {
                 }
             }).start();
 
-            // 3️⃣ Yönetici Kontrol Paneli (CLI) başlatılıyor ⌨️
-            new Thread(() -> {
-                Scanner scanner = new Scanner(System.in);
-                System.out.println("\n========================================");
-                System.out.println("   ANA DÜĞÜM YÖNETİCİ KONSOLU (HDFS)    ");
-                System.out.println("========================================");
-                System.out.println("Komutlar: list-workers, delete-worker <url>, exit");
-
-                while (true) {
-                    System.out.print("Yönetici> ");
-                    String input = scanner.nextLine();
-                    String[] parts = input.trim().split("\\s+");
-                    if (parts.length == 0 || parts[0].isEmpty()) continue;
-                    String command = parts[0].toLowerCase();
-
-                    try {
-                        switch (command) {
-                            case "list-workers":
-                                List<WorkerNode> list = workerRepository.findAll();
-                                System.out.println("📋 Kayıtlı Çalışan Düğümler (" + list.size() + "):");
-
-                                for (WorkerNode w : list) {
-                                    String status = w.isActive() ? "🟢 ÇEVRİMİÇİ" : "🔴 ÇEVRİMDIŞI";
-                                    long secondsAgo = Duration.between(w.getLastHeartbeat(), LocalDateTime.now()).getSeconds();
-
-                                    System.out.println("\n   🌍 URL      : " + w.getUrl());
-                                    System.out.println("      Durum    : " + status + " (Son aktivite: " + secondsAgo + " sn önce)");
-
-                                    if (w.getStorageInfo() != null) {
-                                        System.out.println("      Depolama : " + w.getStorageInfo());
-                                    } else {
-                                        long usedMB = w.getUsed() / (1024 * 1024);
-                                        long capMB  = w.getCapacity() / (1024 * 1024);
-                                        System.out.println("      Depolama : " + usedMB + " MB / " + capMB + " MB");
-                                    }
-                                }
-                                break;
-
-                            case "delete-worker":
-                                if (parts.length < 2) {
-                                    System.out.println("❌ Kullanım: delete-worker <url>");
-                                } else {
-                                    WorkerNode node = workerRepository.findByUrl(parts[1]);
-                                    if (node != null) {
-                                        workerRepository.delete(node);
-                                        System.out.println("🗑️ Çalışan düğüm kayıttan silindi: " + parts[1]);
-                                    } else {
-                                        System.out.println("❌ Çalışan düğüm bulunamadı.");
-                                    }
-                                }
-                                break;
-
-                            case "exit":
-                                System.out.println("👋 Konsol kapatılıyor...");
-                                scanner.close();
-                                System.exit(0);
-                                return;
-
-                            default:
-                                System.out.println("❓ Bilinmeyen komut. Kullanılabilir komutlar: list-workers, delete-worker, exit");
-                        }
-                    } catch (Exception e) {
-                        System.out.println("❌ Hata: " + e.getMessage());
-                    }
-                }
-            }).start();
+            // 🛑 تم حذف شاشة الأوامر (CLI) من هنا بناءً على طلبك
+            System.out.println("✅ NameNode başarıyla başlatıldı. Konsol yönetimi artık İstemci (Client) üzerinden yapılmaktadır.");
         };
     }
 }
