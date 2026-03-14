@@ -141,9 +141,6 @@ public class NameNodeApplication {
                     }
                 }
             }).start();
-
-            // 🛑 تم حذف شاشة الأوامر (CLI) من هنا بناءً على طلبك
-            System.out.println("✅ NameNode başarıyla başlatıldı. Konsol yönetimi artık İstemci (Client) üzerinden yapılmaktadır.");
         };
     }
 }
