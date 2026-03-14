@@ -91,7 +91,7 @@ public class ClientApplication implements CommandLineRunner {
                         CURRENT_USER = "admin";
                         System.out.println("\n✅ YÖNETİCİ GİRİŞİ BAŞARILI! (تم تسجيل دخول المدير)");
                         System.out.println("Ana Düğüm Yönetici Konsolu aktif edildi.");
-                        System.out.println("Komutlar: status, list-workers, delete-worker <url>, logout, clear");
+                        System.out.println("Komutlar: status, list-workers, delete-worker <url>, active-w ,logout, clear");
                     }
                     // الدخول العادي للمستخدمين
                     else if (performLogin(uname, pass)) {
@@ -164,7 +164,9 @@ public class ClientApplication implements CommandLineRunner {
                 } else if ("status".equalsIgnoreCase(command)) {
                     printClusterStatus();
                 } else if ("list-workers".equalsIgnoreCase(command)) {
-                    listWorkers();
+                    listWorkers(false); // false تعني جلب الجميع (النشط وغير النشط)
+                } else if ("active-w".equalsIgnoreCase(command)) {
+                    listWorkers(true);  // true تعني جلب النشطين فقط
                 } else if ("delete-worker".equalsIgnoreCase(command)) {
                     if (parts.length < 2) {
                         System.out.println("⚠️ Kullanım: delete-worker <url>");
@@ -247,25 +249,63 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    private void listWorkers() {
+    // 🟢 دالة طباعة الخوادم (بالشكل القديم المفصل)
+    private void listWorkers(boolean onlyActive) {
         try {
             String url = MASTER_URL + "/api/admin/workers";
-            ResponseEntity<Set<String>> response = restTemplate.exchange(
-                    url, HttpMethod.GET, null, new ParameterizedTypeReference<Set<String>>() {}
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<List<Map<String, Object>>>() {}
             );
 
-            Set<String> workers = response.getBody();
-            System.out.println("\n🖥️ --- AKTİF WORKER LİSTESİ ---");
+            List<Map<String, Object>> workers = response.getBody();
+
             if (workers == null || workers.isEmpty()) {
-                System.out.println("   Sistemde aktif Worker bulunmuyor!");
+                System.out.println("📋 Sistemde kayıtlı Worker bulunmuyor!");
+                return;
+            }
+
+            // فلترة الخوادم النشطة فقط إذا طلب المستخدم أمر active-w
+            if (onlyActive) {
+                workers = workers.stream()
+                        .filter(w -> (Boolean) w.get("active"))
+                        .collect(java.util.stream.Collectors.toList());
+                System.out.println("\n🖥️ --- AKTİF ÇALIŞAN DÜĞÜMLER (" + workers.size() + ") ---");
             } else {
-                for (String w : workers) {
-                    System.out.println("   - " + w);
+                System.out.println("\n📋 Kayıtlı Çalışan Düğümler (" + workers.size() + "):");
+            }
+
+            if (workers.isEmpty()) {
+                System.out.println("   Aktif Worker bulunmuyor!");
+                return;
+            }
+
+            // طباعة الخوادم بالشكل الفخم
+            for (Map<String, Object> w : workers) {
+                String workerUrl = (String) w.get("url");
+                boolean isActive = (Boolean) w.get("active");
+                // التحويل الآمن للأرقام القادمة من JSON
+                long secondsAgo = ((Number) w.get("secondsAgo")).longValue();
+
+                String status = isActive ? "🟢 ÇEVRİMİÇİ" : "🔴 ÇEVRİMDIŞI";
+
+                System.out.println("\n   🌍 URL      : " + workerUrl);
+                System.out.println("      Durum    : " + status + " (Son aktivite: " + secondsAgo + " sn önce)");
+
+                String storageInfo = (String) w.get("storageInfo");
+                if (storageInfo != null) {
+                    System.out.println("      Depolama : " + storageInfo);
+                } else {
+                    long used = ((Number) w.get("used")).longValue();
+                    long capacity = ((Number) w.get("capacity")).longValue();
+                    long usedMB = used / (1024 * 1024);
+                    long capMB  = capacity / (1024 * 1024);
+                    System.out.println("      Depolama : " + usedMB + " MB / " + capMB + " MB");
                 }
             }
-            System.out.println("--------------------------------\n");
+            System.out.println("\n--------------------------------");
+
         } catch (Exception e) {
-            System.out.println("❌ Hata: Worker listesi alınamadı.");
+            System.out.println("❌ Hata: Worker listesi alınamadı. (" + e.getMessage() + ")");
         }
     }
 
