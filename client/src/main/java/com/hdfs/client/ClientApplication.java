@@ -24,9 +24,13 @@ import java.util.Scanner;
 @SpringBootApplication
 public class ClientApplication implements CommandLineRunner {
 
+    // 🟢 إعدادات الاتصال بالماستر
     private static String MASTER_IP = "localhost";
     private static String MASTER_URL = "http://" + MASTER_IP + ":8080";
-    private static String CURRENT_USER = "anonymous";
+
+    // 🟢 متغيرات حالة المستخدم (User State)
+    private static String CURRENT_USER = null;
+    private static boolean isLoggedIn = false;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -42,7 +46,7 @@ public class ClientApplication implements CommandLineRunner {
         System.out.println("⚙️  HDFS Client Configuration");
         System.out.println("========================================");
 
-        // 1. إعداد الـ IP
+        // إعداد عنوان الـ IP للماستر
         System.out.print("✍️  Lütfen Master IP adresini girin (Default: localhost): ");
         String inputIp = scanner.nextLine().trim();
         if (!inputIp.isEmpty()) {
@@ -50,63 +54,160 @@ public class ClientApplication implements CommandLineRunner {
             MASTER_URL = "http://" + MASTER_IP + ":8080";
         }
 
-        // 2. تسجيل الدخول
-        System.out.print("👤 Kullanıcı Adı Girin (Login): ");
-        String inputUser = scanner.nextLine().trim();
-        if (!inputUser.isEmpty()) {
-            CURRENT_USER = inputUser;
-        }
-
-        System.out.println("✅ Giriş yapıldı: " + CURRENT_USER);
         System.out.println("✅ Master adresi: " + MASTER_URL);
         System.out.println("------------------------------------------------");
-        System.out.println("Mini-HDFS İstemcisine Hoş Geldiniz, " + CURRENT_USER + "!");
-        System.out.println("Kullanılabilir komutlar : ls, upload <file>, download <file>, delete <file>, clear, exit");
+        System.out.println("Mini-HDFS İstemcisine Hoş Geldiniz!");
 
+        // 🟢 حلقة التشغيل الرئيسية (تعتمد على حالة المستخدم)
         while (true) {
-            System.out.print(CURRENT_USER + "@hdfs> ");
-            String commandLine = scanner.nextLine().trim();
 
-            if (commandLine.isEmpty()) continue;
+            // ---------------------------------------------------------
+            // 🟢 1. حالة الضيف (Guest State) - قائمة الخيارات التفاعلية
+            // ---------------------------------------------------------
+            if (!isLoggedIn) {
+                System.out.println("\n--- Lütfen bir işlem seçin ---");
+                System.out.println("1. Giriş Yap (تسجيل الدخول)");
+                System.out.println("2. Yeni Kayıt (إنشاء حساب جديد)");
+                System.out.println("3. Çıkış (خروج)");
+                System.out.print("Seçiminiz (1/2/3): ");
 
-            String[] parts = commandLine.split("\\s+", 2);
-            String command = parts[0];
+                String choice = scanner.nextLine().trim();
 
-            if ("exit".equalsIgnoreCase(command)) {
-                System.out.println("👋 Güle güle " + CURRENT_USER + "! Çıkış yapılıyor...");
-                break;
+                // خيار الخروج
+                if ("3".equals(choice) || "exit".equalsIgnoreCase(choice)) {
+                    System.out.println("👋 Güle güle! Çıkış yapılıyor...");
+                    break;
+                }
+                // خيار تسجيل الدخول
+                else if ("1".equals(choice)) {
+                    System.out.print("👤 Kullanıcı Adı (اسم المستخدم): ");
+                    String uname = scanner.nextLine().trim();
+                    System.out.print("🔑 Şifre (كلمة السر): ");
+                    String pass = scanner.nextLine().trim();
+
+                    if (uname.isEmpty() || pass.isEmpty()) {
+                        System.out.println("⚠️ İsim veya şifre boş bırakılamaz!");
+                        continue;
+                    }
+
+                    if (performLogin(uname, pass)) {
+                        isLoggedIn = true;
+                        CURRENT_USER = uname;
+                        System.out.println("✅ Hoş geldin, " + CURRENT_USER + "!");
+                        System.out.println("Dosya komutları açıldı: ls, upload <file>, download <file>, delete <file>, logout");
+                    }
+                }
+                // خيار إنشاء الحساب (مع تأكيد كلمة المرور والتحذير)
+                else if ("2".equals(choice)) {
+                    System.out.print("👤 Yeni Kullanıcı Adı (اسم المستخدم الجديد): ");
+                    String uname = scanner.nextLine().trim();
+
+                    System.out.print("🔑 Yeni Şifre (كلمة السر الجديدة): ");
+                    String pass = scanner.nextLine().trim();
+
+                    System.out.print("🔑 Şifreyi Onayla (تأكيد كلمة السر): ");
+                    String confirmPass = scanner.nextLine().trim();
+
+                    if (uname.isEmpty() || pass.isEmpty()) {
+                        System.out.println("⚠️ İsim veya şifre boş bırakılamaz! (لا يمكن ترك الاسم أو كلمة السر فارغة)");
+                        continue;
+                    }
+
+                    if (!pass.equals(confirmPass)) {
+                        System.out.println("❌ Şifreler eşleşmiyor! Lütfen tekrar deneyin. (كلمتا المرور غير متطابقتين! يرجى المحاولة مرة أخرى)");
+                        continue;
+                    }
+
+                    System.out.println("\n⚠️ DİKKAT: Lütfen şifrenizi unutmayın, çünkü sistemde şifre sıfırlama özelliği yoktur!");
+                    System.out.println("⚠️ تنبيه: الرجاء الاحتفاظ بكلمة المرور جيداً لأنه لا يمكن استعادتها أو تغييرها لاحقاً!\n");
+
+                    performRegister(uname, pass);
+                }
+                else {
+                    System.out.println("❓ Geçersiz seçim. Lütfen 1, 2 veya 3 girin.");
+                }
             }
 
-            if ("ls".equalsIgnoreCase(command)) {
-                listFiles();
+            // ---------------------------------------------------------
+            // 🟢 2. حالة المستخدم المسجل (Logged-In State)
+            // ---------------------------------------------------------
+            else {
+                System.out.print(CURRENT_USER + "@hdfs> ");
+                String commandLine = scanner.nextLine().trim();
 
-            } else if ("upload".equalsIgnoreCase(command)) {
-                if (parts.length < 2) {
-                    System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
-                    continue;
+                if (commandLine.isEmpty()) continue;
+
+                String[] parts = commandLine.split("\\s+", 3);
+                String command = parts[0];
+
+                if ("exit".equalsIgnoreCase(command)) {
+                    System.out.println("👋 Güle güle " + CURRENT_USER + "! Çıkış yapılıyor...");
+                    break;
+                } else if ("logout".equalsIgnoreCase(command)) {
+                    System.out.println("👋 Çıkış yapıldı. Tekrar bekleriz " + CURRENT_USER + "!");
+                    isLoggedIn = false;
+                    CURRENT_USER = null; // إعادة تعيين المستخدم
+                } else if ("clear".equalsIgnoreCase(command)) {
+                    clearScreen();
+                } else if ("ls".equalsIgnoreCase(command)) {
+                    listFiles();
+                } else if ("upload".equalsIgnoreCase(command)) {
+                    if (parts.length < 2) {
+                        System.out.println("⚠️ Lütfen dosya yolunu belirtin.");
+                        continue;
+                    }
+                    String path = parts.length == 3 ? parts[1] + " " + parts[2] : parts[1];
+                    uploadFile(removeQuotes(path));
+                } else if ("download".equalsIgnoreCase(command)) {
+                    if (parts.length < 2) {
+                        System.out.println("⚠️ Lütfen dosya adını belirtin.");
+                        continue;
+                    }
+                    String path = parts.length == 3 ? parts[1] + " " + parts[2] : parts[1];
+                    downloadFile(removeQuotes(path));
+                } else if ("delete".equalsIgnoreCase(command)) {
+                    if (parts.length < 2) {
+                        System.out.println("⚠️ Lütfen silinecek dosya adını belirtin.");
+                        continue;
+                    }
+                    String path = parts.length == 3 ? parts[1] + " " + parts[2] : parts[1];
+                    deleteFileRequest(removeQuotes(path));
+                } else {
+                    System.out.println("❓ Bilinmeyen komut. (Yardım: ls, upload, download, delete, logout, clear, exit)");
                 }
-                uploadFile(removeQuotes(parts[1]));
+            }
+        }
+    }
 
-            } else if ("download".equalsIgnoreCase(command)) {
-                if (parts.length < 2) {
-                    System.out.println("⚠️ Lütfen dosya adını belirtin.");
-                    continue;
-                }
-                downloadFile(removeQuotes(parts[1]));
+    // 🟢 --- دوال المصادقة (Authentication Methods) ---
+    private boolean performLogin(String username, String password) {
+        try {
+            String url = MASTER_URL + "/api/auth/login?username=" + username + "&password=" + password;
+            restTemplate.postForEntity(url, null, String.class);
+            return true;
+        } catch (HttpClientErrorException e) {
+            System.out.println("❌ " + e.getResponseBodyAsString());
+            return false;
+        } catch (Exception e) {
+            System.out.println("❌ Hata: Master'a bağlanılamadı.");
+            return false;
+        }
+    }
 
-            } else if ("delete".equalsIgnoreCase(command)) {
-                if (parts.length < 2) {
-                    System.out.println("⚠️ Lütfen silinecek dosya adını belirtin.");
-                    continue;
-                }
-                deleteFileRequest(removeQuotes(parts[1]));
-
-            } else if ("clear".equalsIgnoreCase(command)) {
-                clearScreen();
-                System.out.println("✨ Console Cleared! ✨");
+    private void performRegister(String username, String password) {
+        try {
+            String url = MASTER_URL + "/api/auth/register?username=" + username + "&password=" + password;
+            restTemplate.postForEntity(url, null, String.class);
+            System.out.println("✅ Kayıt başarıyla tamamlandı. Hoş geldin, " + username + "!");
+        } catch (HttpClientErrorException e) {
+            // منع تكرار اسم المستخدم
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                System.out.println("❌ Bu isim zaten mevcut, lütfen başka bir isim seçin. (هذا الاسم موجود بالفعل، الرجاء اختيار اسم آخر)");
             } else {
-                System.out.println("❓ Bilinmeyen komut. (Yardım: ls, upload, download, delete, clear, exit)");
+                System.out.println("❌ " + e.getResponseBodyAsString());
             }
+        } catch (Exception e) {
+            System.out.println("❌ Hata: Master'a bağlanılamadı.");
         }
     }
 
@@ -118,17 +219,13 @@ public class ClientApplication implements CommandLineRunner {
         return path;
     }
 
-    // --- List Files (LS) ---
+    // 🟢 --- دالة استعراض الملفات (LS) ---
     private void listFiles() {
         System.out.println("📂 Dosyalar listeleniyor (" + CURRENT_USER + ")...");
         try {
             String listUrl = MASTER_URL + "/api/file/list/" + CURRENT_USER;
-
             ResponseEntity<List<String>> response = restTemplate.exchange(
-                    listUrl,
-                    HttpMethod.GET,
-                    null,
-                    new ParameterizedTypeReference<List<String>>() {}
+                    listUrl, HttpMethod.GET, null, new ParameterizedTypeReference<List<String>>() {}
             );
 
             List<String> files = response.getBody();
@@ -147,8 +244,7 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // 🟢 --- Upload (مزودة بقياس الأداء) ---
-    // 🟢 --- Upload (المعدلة والمحمية بشكل كامل) ---
+    // 🟢 --- دالة الرفع (Upload) - محمية ضد التعارض ---
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -157,14 +253,13 @@ public class ClientApplication implements CommandLineRunner {
         }
 
         long fileSize = file.length();
-        long blockSize = 64 * 1024 * 1024; // 64 MB
+        long blockSize = 64 * 1024 * 1024;
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
 
         System.out.println("📦 Dosya: " + file.getName() + " (" + totalBlocks + " blok) yükleniyor...");
 
-        // ⏱️ بدء المؤقت
         long startTime = System.currentTimeMillis();
-        boolean uploadSuccess = true; // 🟢 نفترض النجاح مبدئياً
+        boolean uploadSuccess = true;
 
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[(int) blockSize];
@@ -184,16 +279,15 @@ public class ClientApplication implements CommandLineRunner {
                 try {
                     response = restTemplate.postForObject(allocateUrl, request, BlockAllocation.class);
                 } catch (HttpClientErrorException e) {
-                    // 🛑 التقاط خطأ الحذف أثناء الرفع
+                    // التقاط تعارض الرفع مع الحذف
                     if (e.getStatusCode() == HttpStatus.CONFLICT) {
                         System.out.println("\n❌ KRİTİK HATA: Yükleme sırasında dosya sunucudan silindi!");
                         System.out.println("🛑 Yükleme işlemi derhal iptal ediliyor.");
-                        uploadSuccess = false; // نعلن الفشل!
-                        break; // نكسر الحلقة ونتوقف عن الرفع
+                        uploadSuccess = false;
+                        break;
                     }
                 }
 
-                // إذا فشل الرفع لأي سبب، تأكد من كسر الحلقة
                 if (!uploadSuccess) break;
 
                 if (response == null || response.getWorkerUrls() == null || response.getWorkerUrls().isEmpty()) {
@@ -208,7 +302,6 @@ public class ClientApplication implements CommandLineRunner {
                     System.out.print("   🚀 Yükleniyor -> " + workerUrl + " ... ");
                     try {
                         final String partName = file.getName() + "_part_" + blockIndex;
-
                         ByteArrayResource byteResource = new ByteArrayResource(exactData) {
                             @Override
                             public String getFilename() { return partName; }
@@ -230,9 +323,8 @@ public class ClientApplication implements CommandLineRunner {
                     }
                 }
                 blockIndex++;
-            } // 🔚 نهاية حلقة الرفع
+            }
 
-            // 🟢 التعديل الأهم: لا نحتفل ولا نطبع رسالة النجاح إلا إذا كانت uploadSuccess ما زالت true
             if (uploadSuccess) {
                 System.out.println("\n🎉 Yükleme tamamlandı!");
             }
@@ -242,24 +334,22 @@ public class ClientApplication implements CommandLineRunner {
             uploadSuccess = false;
         }
 
-        // 🟢 إيقاف المؤقت وحساب الأداء (فقط في حال النجاح التام)
+        // طباعة الأداء فقط إذا اكتمل الرفع بدون أخطاء
         if (uploadSuccess) {
             long endTime = System.currentTimeMillis();
             printPerformanceReport(fileSize, startTime, endTime, "Upload");
         } else {
-            // رسالة صغيرة توضح أن التقرير لن يطبع بسبب الإلغاء
             System.out.println("⚠️ İşlem yarıda kesildiği için performans raporu oluşturulmadı.");
         }
     }
 
-    // 🟢 --- Download (المعدلة والمحمية ضد المسح أثناء التحميل) ---
+    // 🟢 --- دالة التحميل (Download) - محمية ببروتوكول التحقق النهائي ---
     private void downloadFile(String filename) {
         System.out.println("🔄 İndiriliyor: " + filename);
         String targetFolder = "C:\\HDFS_Downloads\\";
         new File(targetFolder).mkdirs();
 
         try {
-            // 1. التحقق المبدئي
             String encodedName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
             String locateUrl = MASTER_URL + "/api/file/locate/" + encodedName + "?owner=" + CURRENT_USER;
 
@@ -283,7 +373,6 @@ public class ClientApplication implements CommandLineRunner {
                     String partName = filename + "_part_" + blockIndex;
                     String encodedPartName = URLEncoder.encode(partName, StandardCharsets.UTF_8.toString()).replace("+", "%20");
 
-                    // نسأل الماستر عن مكان هذا الجزء
                     String locateBlockUrl = MASTER_URL + "/api/file/locate-block/" + encodedPartName;
                     String workerUrl = null;
 
@@ -302,13 +391,12 @@ public class ClientApplication implements CommandLineRunner {
                         continue;
                     }
 
-                    // التحميل من الووركر
                     String downloadUrl = workerUrl + "/api/data/read/" + encodedPartName;
 
                     try {
                         ResponseEntity<byte[]> response = restTemplate.getForEntity(downloadUrl, byte[].class);
                         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                            System.out.print("."); // مؤشر تقدم
+                            System.out.print(".");
                             fos.write(response.getBody());
                             downloadedBlocks++;
                             blockIndex++;
@@ -317,30 +405,28 @@ public class ClientApplication implements CommandLineRunner {
                         System.out.println("\n❌ " + partName + " indirilirken " + workerUrl + " düğümünde hata oluştu!");
                         moreParts = false;
                     }
-                } // 🔚 نهاية حلقة while
+                }
 
-                // 🟢 التحقق النهائي لضمان عدم تعرض الملف للحذف أثناء عملية التحميل
+                // التحقق النهائي بعد انتهاء التجميع
                 boolean fileStillExists = true;
                 try {
                     restTemplate.getForEntity(locateUrl, String.class);
                 } catch (Exception e) {
-                    // استخدام Exception للقبض على أي نوع من الأخطاء من الماستر
                     fileStillExists = false;
                 }
 
-                // 🟢 التقييم النهائي
                 if (downloadedBlocks > 0 && fileStillExists) {
                     success = true;
                 } else if (!fileStillExists) {
                     System.out.println("\n❌ KRİTİK HATA: İndirme işlemi sırasında dosya sunucudan silindi veya değiştirildi!");
-                    success = false; // نلغي النجاح لكي يتم مسح الملف التالف
+                    success = false;
                 }
 
             } catch (Exception e) {
                 System.out.println("\n❌ Yazma hatası: " + e.getMessage());
             }
 
-            // التنظيف في حال الفشل
+            // تنظيف الملف التالف إذا فشل التحميل
             if (finalFile.exists() && (!success || finalFile.length() == 0)) {
                 finalFile.delete();
                 if (!success && downloadedBlocks > 0) {
@@ -357,21 +443,15 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
-    // --- Delete ---
+    // 🟢 --- دالة الحذف (Delete) ---
     private void deleteFileRequest(String filename) {
         System.out.println("🗑️ Siliniyor: " + filename + "...");
         try {
-            // 1. التشفير الصحيح للمسافات
             String encodedFileName = URLEncoder.encode(filename, StandardCharsets.UTF_8.toString()).replace("+", "%20");
-
-            // 2. بناء الرابط
             String deleteUrl = MASTER_URL + "/api/file/delete/" + encodedFileName + "?owner=" + CURRENT_USER;
 
             ResponseEntity<String> response = restTemplate.exchange(
-                    deleteUrl,
-                    HttpMethod.DELETE,
-                    null,
-                    String.class
+                    deleteUrl, HttpMethod.DELETE, null, String.class
             );
 
             if (response.getStatusCode().is2xxSuccessful()) {
@@ -387,6 +467,7 @@ public class ClientApplication implements CommandLineRunner {
         }
     }
 
+    // 🟢 --- دالة تنظيف الشاشة (Clear Screen) ---
     private void clearScreen() {
         try {
             String os = System.getProperty("os.name").toLowerCase();
@@ -395,7 +476,7 @@ public class ClientApplication implements CommandLineRunner {
         } catch (Exception e) { for (int i = 0; i < 50; i++) System.out.println(); }
     }
 
-    // 🟢 دالة جديدة مخصصة لطباعة تقرير الأداء
+    // 🟢 --- دالة تقرير الأداء (Performance Report) ---
     private void printPerformanceReport(long fileSizeBytes, long startTimeMs, long endTimeMs, String operationType) {
         long durationMs = endTimeMs - startTimeMs;
         if (durationMs == 0) durationMs = 1;
