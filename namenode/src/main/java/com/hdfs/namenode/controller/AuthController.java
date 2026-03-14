@@ -40,4 +40,10 @@ public class AuthController {
 
         return ResponseEntity.ok("Giriş başarılı."); // تم الدخول بنجاح
     }
+    // 🟢 دالة جديدة للتحقق الفوري من توفر اسم المستخدم
+    @GetMapping("/check-username")
+    public ResponseEntity<Boolean> checkUsername(@RequestParam String username) {
+        boolean exists = (userRepository.findByUsername(username) != null);
+        return ResponseEntity.ok(exists);
+    }
 }
