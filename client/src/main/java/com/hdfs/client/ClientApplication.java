@@ -237,7 +237,7 @@ public class ClientApplication implements CommandLineRunner {
 
     // --- List Files (LS) ---
     private void listFiles() {
-        System.out.println("📂 Dosyalar listeleniyor (" + CURRENT_USER + ")...");
+        System.out.println("📂 Dosyalar listeleniyor ... ");
         try {
             String listUrl = MASTER_URL + "/api/file/list/" + CURRENT_USER;
             ResponseEntity<List<String>> response = restTemplate.exchange(

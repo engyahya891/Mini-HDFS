@@ -191,9 +191,9 @@ public class FileController {
                     try {
                         String workerDeleteUrl = worker.getUrl() + "/api/data/delete/" + base64Name;
                         restTemplate.delete(workerDeleteUrl);
-                        System.out.println("📤 Delete sent to worker: " + worker.getUrl());
+                        System.out.println("📤 Silme isteği Worker'a gönderildi : " + worker.getUrl());
                     } catch (Exception ignored) {
-                        System.out.println("⚠️ Worker unreachable: " + worker.getUrl());
+                        System.out.println("⚠️ Worker Erişilemiyor: " + worker.getUrl());
                     }
                 }
             }
