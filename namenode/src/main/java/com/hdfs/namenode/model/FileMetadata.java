@@ -17,8 +17,11 @@ public class FileMetadata {
     @Column(nullable = false)
     private String owner;
 
-    // 🟢 الإضافة السحرية: قفل التزامن المتفائل (Optimistic Locking)
-    // هذا الحقل سيحمي قاعدة البيانات من تداخل الطلبات المتزامنة
+    // 🟢 الإضافة الجديدة: حقل بصمة التشفير (MD5 Checksum) لضمان سلامة البيانات
+    @Column(name = "md5_checksum")
+    private String md5Checksum;
+
+    // قفل التزامن المتفائل (Optimistic Locking)
     @Version
     private Long version;
 
@@ -45,13 +48,15 @@ public class FileMetadata {
     public String getFilename() { return filename; }
     public long getFileSize() { return fileSize; }
     public String getOwner() { return owner; }
-    public Long getVersion() { return version; } // 🟢 Getter الجديد للنسخة
+    public Long getVersion() { return version; }
+    public String getMd5Checksum() { return md5Checksum; } // 🟢 Getter الجديد للبصمة
     public List<BlockMetadata> getBlocks() { return blocks; }
 
     // --- Setters ---
     public void setFilename(String filename) { this.filename = filename; }
     public void setFileSize(long fileSize) { this.fileSize = fileSize; }
     public void setOwner(String owner) { this.owner = owner; }
-    public void setVersion(Long version) { this.version = version; } // 🟢 Setter الجديد للنسخة
+    public void setVersion(Long version) { this.version = version; }
+    public void setMd5Checksum(String md5Checksum) { this.md5Checksum = md5Checksum; } // 🟢 Setter الجديد للبصمة
     public void setBlocks(List<BlockMetadata> blocks) { this.blocks = blocks; }
 }

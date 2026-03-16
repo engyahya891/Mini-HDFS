@@ -13,13 +13,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.net.URLDecoder;
-import java.net.URLEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
 @RestController
@@ -65,13 +61,11 @@ public class FileController {
                 FileMetadata fileMeta = fileRepository.findByFilename(filename);
 
                 if (fileMeta == null) {
-                    // 🟢 التعديل الجوهري: ننشئ الملف فقط إذا كان هذا هو البلوك الأول
                     if (requestInfo.getBlockIndex() == 1) {
                         fileMeta = new FileMetadata(filename, 0, owner);
                         fileRepository.save(fileMeta);
                         System.out.println("📝 Yeni dosya kaydedildi: " + filename + " kullanıcı: " + owner);
                     } else {
-                        // 🔴 إذا لم يكن البلوك الأول والملف غير موجود، فهذا يعني أنه حُذف أثناء الرفع!
                         System.out.println("🚨 HATA: Dosya yükleme sırasında silinmiş! İşlem reddedildi.");
                         return ResponseEntity.status(409).build(); // 409 Conflict
                     }
@@ -108,10 +102,8 @@ public class FileController {
 
         System.out.println("🔍 araştırma talebi : " + filename);
 
-        // المحاولة الأولى: البحث بالاسم كما وصل
         FileMetadata fileMeta = fileRepository.findByFilename(filename);
 
-        // المحاولة الثانية: إذا فشل، نحاول فك التشفير (للمسافات والأحرف الخاصة)
         if (fileMeta == null) {
             try {
                 String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
@@ -136,8 +128,8 @@ public class FileController {
         return ResponseEntity.ok(workerUrl);
     }
 
-    // 🔴 4. الحذف (Delete) - النسخة المدرعة والمحمية ضد إحياء البيانات
-    @Transactional // 🟢 إضافة حاسمة لضمان تنفيذ مسح قاعدة البيانات كعملية واحدة (Atomic)
+    // 🔴 4. الحذف (Delete)
+    @Transactional
     @DeleteMapping("/delete/{filename:.+}")
     public ResponseEntity<String> deleteFile(
             @PathVariable String filename,
@@ -145,7 +137,6 @@ public class FileController {
 
         System.out.println("🗑️ Master: Silme isteği -> " + filename + " (" + owner + ")");
 
-        // 1. البحث عن الملف
         FileMetadata fileMeta = fileRepository.findByFilename(filename);
 
         if (fileMeta == null) {
@@ -170,7 +161,6 @@ public class FileController {
         String realFilename = fileMeta.getFilename();
 
         try {
-            // 🟢 التعديل المعماري: مسح البلوكات (الأبناء) أولاً لتجنب إحياء الكائنات
             List<BlockMetadata> allBlocks = blockRepository.findAll();
             for (BlockMetadata block : allBlocks) {
                 if (Objects.equals(block.getFilename(), realFilename) ||
@@ -179,10 +169,8 @@ public class FileController {
                 }
             }
 
-            // 🟢 ضربة قاضية: مسح الملف الأصلي (الأب) باستخدام ID مباشرة
             fileRepository.deleteById(realFilename);
 
-            // 2. إرسال أمر الحذف للـ Workers
             List<WorkerNode> workers = workerRepository.findAll();
             String base64Name = Base64.getUrlEncoder().encodeToString(realFilename.getBytes(StandardCharsets.UTF_8));
 
@@ -206,28 +194,88 @@ public class FileController {
         }
     }
 
-    // 🟢 دالة جديدة: البحث عن عنوان Worker يملك "جزء معين (Block)" وليس الملف بالكامل
+    // 🟢 البحث عن بلوك معين
     @GetMapping("/locate-block/{blockId:.+}")
     public ResponseEntity<String> locateBlock(@PathVariable String blockId) {
         try {
-            // فك التشفير
             String decodedBlockId = URLDecoder.decode(blockId, StandardCharsets.UTF_8.toString());
-
-            // نبحث في الداتا بيز عن كل النسخ الخاصة بهذا الجزء
             List<BlockMetadata> blocks = blockRepository.findByBlockId(decodedBlockId);
 
-            // نمر عليها ونعيد عنوان أول Worker "نشط" يملك هذا الجزء
             for (BlockMetadata block : blocks) {
                 if (block.getWorker().isActive()) {
                     return ResponseEntity.ok(block.getWorker().getUrl());
                 }
             }
-
-            // إذا لم نجد الجزء (يعني وصلنا لنهاية الملف) نعيد 404
             return ResponseEntity.status(404).body("BLOK_BULUNAMADI");
 
         } catch (Exception e) {
             return ResponseEntity.status(500).body("HATA: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // 🟢 الميزات الجديدة: تحديث بصمة التشفير (MD5) وجلب تفاصيل الملف (File Info)
+    // =========================================================================
+
+    // 🟢 تحديث البصمة وحجم الملف النهائي بعد انتهاء الرفع
+    @PostMapping("/update-checksum")
+    public ResponseEntity<String> updateChecksum(
+            @RequestParam String filename,
+            @RequestParam String owner,
+            @RequestParam long fileSize,
+            @RequestParam String checksum) {
+
+        FileMetadata fileMeta = fileRepository.findByFilename(filename);
+        if (fileMeta != null && fileMeta.getOwner().equals(owner)) {
+            fileMeta.setFileSize(fileSize);
+            fileMeta.setMd5Checksum(checksum);
+            fileRepository.save(fileMeta);
+            return ResponseEntity.ok("OK");
+        }
+        return ResponseEntity.status(404).body("Dosya bulunamadı veya yetkisiz.");
+    }
+
+    // 🟢 "أشعة إكس": جلب تفاصيل الملف الهندسي (Metadata & Replication Map)
+    @GetMapping("/info/{filename:.+}")
+    public ResponseEntity<Map<String, Object>> getFileInfo(
+            @PathVariable String filename,
+            @RequestParam String owner) {
+
+        try {
+            String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+            FileMetadata fileMeta = fileRepository.findByFilename(decodedName);
+
+            if (fileMeta == null || !fileMeta.getOwner().equals(owner)) {
+                return ResponseEntity.status(404).body(null);
+            }
+
+            Map<String, Object> info = new HashMap<>();
+            info.put("filename", fileMeta.getFilename());
+            info.put("size", fileMeta.getFileSize());
+            info.put("checksum", fileMeta.getMd5Checksum() != null ? fileMeta.getMd5Checksum() : "YOK");
+
+            // البحث عن جميع البلوكات الخاصة بهذا الملف
+            List<BlockMetadata> allBlocks = blockRepository.findAll().stream()
+                    .filter(b -> b.getBlockId() != null && b.getBlockId().startsWith(decodedName))
+                    .collect(Collectors.toList());
+
+            // تجميع البلوكات حسب رقم البلوك (Block Index) لمعرفة النسخ المتعددة
+            Map<String, List<String>> blockLocations = new TreeMap<>();
+
+            for (BlockMetadata block : allBlocks) {
+                String bId = block.getBlockId();
+                String workerInfo = block.getWorker().getUrl() + (block.getWorker().isActive() ? " (Aktif)" : " (ÖLÜ)");
+
+                blockLocations.computeIfAbsent(bId, k -> new ArrayList<>()).add(workerInfo);
+            }
+
+            info.put("blocksCount", blockLocations.size());
+            info.put("locations", blockLocations);
+
+            return ResponseEntity.ok(info);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(null);
         }
     }
 }
