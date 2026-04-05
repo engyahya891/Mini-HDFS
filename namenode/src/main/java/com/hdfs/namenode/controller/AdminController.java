@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
+@CrossOrigin("*") // 🟢 هذا السطر هو الذي سيسمح لـ React بسحب المعلومات دون مشاكل
 @RequestMapping("/api/admin")
 public class AdminController {
 

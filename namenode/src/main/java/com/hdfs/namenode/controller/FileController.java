@@ -19,6 +19,7 @@ import java.net.URLDecoder;
 import org.springframework.transaction.annotation.Transactional;
 
 @RestController
+@CrossOrigin("*") // 🟢 هذا السطر هو الذي سيسمح لـ React بسحب المعلومات دون مشاكل
 @RequestMapping("/api/file")
 public class FileController {
 
