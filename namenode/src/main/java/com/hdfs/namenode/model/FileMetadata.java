@@ -1,6 +1,8 @@
 package com.hdfs.namenode.model;
 
 import jakarta.persistence.*;
+
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,6 +44,13 @@ public class FileMetadata {
     public void addBlock(BlockMetadata block) {
         this.blocks.add(block);
         block.setFileMetadata(this); // ربط البلوك بالملف (Bi-directional)
+    }
+
+    private LocalDateTime uploadedAt = LocalDateTime.now();
+
+    // 🟢 تأكد من إضافة الـ Getter الخاص به
+    public LocalDateTime getUploadedAt() {
+        return uploadedAt;
     }
 
     // --- Getters ---
