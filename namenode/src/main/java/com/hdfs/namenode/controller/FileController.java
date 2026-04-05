@@ -279,4 +279,44 @@ public class FileController {
             return ResponseEntity.status(500).body(null);
         }
     }
+
+    // =========================================================================
+    // 🟢 إضافة جديدة: جلب جميع الملفات مع تفاصيلها لعرضها في لوحة التحكم (Overview)
+    // =========================================================================
+    @GetMapping("/all-files-info")
+    public ResponseEntity<List<Map<String, Object>>> getAllFilesForDashboard() {
+        try {
+            // جلب جميع الملفات من قاعدة البيانات
+            List<FileMetadata> allFiles = fileRepository.findAll();
+            List<Map<String, Object>> responseList = new ArrayList<>();
+
+            // جلب جميع البلوكات مرة واحدة لتسريع البحث
+            List<BlockMetadata> allBlocks = blockRepository.findAll();
+
+            for (FileMetadata fileMeta : allFiles) {
+                Map<String, Object> fileData = new HashMap<>();
+                fileData.put("id", fileMeta.getFilename()); // نستخدم الاسم كمعرف فريد مؤقتاً
+                fileData.put("filename", fileMeta.getFilename());
+                fileData.put("size", fileMeta.getFileSize());
+                // 🟢 السطر الجديد: إرسال اسم المالك للواجهة
+                fileData.put("owner", fileMeta.getOwner());
+
+                // حساب عدد البلوكات (النسخ) لهذا الملف
+                long blocksCount = allBlocks.stream()
+                        .filter(b -> b.getBlockId() != null && b.getBlockId().startsWith(fileMeta.getFilename()))
+                        .count();
+                fileData.put("nodes", blocksCount > 0 ? blocksCount : 1);
+
+
+                fileData.put("uploadedAt", fileMeta.getUploadedAt() != null ? fileMeta.getUploadedAt().toString() : java.time.LocalDateTime.now().toString());
+
+                responseList.add(fileData);
+            }
+
+            return ResponseEntity.ok(responseList);
+        } catch (Exception e) {
+            System.err.println("HATA: Dashboard dosyaları çekilemedi - " + e.getMessage());
+            return ResponseEntity.status(500).body(null);
+        }
+    }
 }
