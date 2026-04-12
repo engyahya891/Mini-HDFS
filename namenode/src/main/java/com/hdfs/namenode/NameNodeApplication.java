@@ -9,6 +9,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.scheduling.annotation.EnableScheduling; // 🟢 استدعاء المكتبة
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -16,10 +17,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
 import java.util.stream.Collectors; // تم إبقاء هذا
 // تم حذف import java.util.Scanner; لأننا لم نعد نحتاجها هنا
 
 @SpringBootApplication
+@EnableScheduling // 🟢 هذا السطر هو السر! بدونه لن يعمل المراقب
 public class NameNodeApplication {
 
     public static void main(String[] args) {

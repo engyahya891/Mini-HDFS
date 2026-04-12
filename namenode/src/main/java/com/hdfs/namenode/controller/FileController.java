@@ -6,6 +6,7 @@ import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.BlockRepository;
 import com.hdfs.namenode.repository.FileRepository;
 import com.hdfs.namenode.repository.WorkerRepository;
+import com.hdfs.namenode.service.NotificationService;
 import com.hdfs.common.protocol.BlockAllocation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -19,7 +20,7 @@ import java.net.URLDecoder;
 import org.springframework.transaction.annotation.Transactional;
 
 @RestController
-@CrossOrigin("*") // 🟢 هذا السطر هو الذي سيسمح لـ React بسحب المعلومات دون مشاكل
+@CrossOrigin("*")
 @RequestMapping("/api/file")
 public class FileController {
 
@@ -32,22 +33,34 @@ public class FileController {
     @Autowired
     private FileRepository fileRepository;
 
+    @Autowired
+    private NotificationService notificationService;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
-    // 🟢 1. الرفع (Allocate Block)
+    // 🟢 دالة مساعدة لفك التشفير الإجباري
+    private String decodeFilename(String filename) {
+        try {
+            return URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+        } catch (Exception e) {
+            return filename;
+        }
+    }
+
     @PostMapping("/allocate-block")
     public ResponseEntity<BlockAllocation> allocateBlock(
             @RequestBody BlockAllocation requestInfo,
             @RequestParam(name = "owner", defaultValue = "anonymous") String owner,
             @RequestParam(name = "filename") String filename) {
 
+        // 🟢 إصلاح جذري: فك التشفير قبل فعل أي شيء
+        String realFilename = decodeFilename(filename);
+
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
                 .filter(WorkerNode::isActive)
                 .collect(Collectors.toList());
 
-        if (activeWorkers.isEmpty()) {
-            return ResponseEntity.status(500).build();
-        }
+        if (activeWorkers.isEmpty()) return ResponseEntity.status(500).build();
 
         Collections.shuffle(activeWorkers);
         int replicationFactor = Math.min(activeWorkers.size(), 2);
@@ -58,17 +71,16 @@ public class FileController {
                 .collect(Collectors.toList());
 
         try {
-            if (filename != null && !filename.isEmpty()) {
-                FileMetadata fileMeta = fileRepository.findByFilename(filename);
+            if (realFilename != null && !realFilename.isEmpty()) {
+                FileMetadata fileMeta = fileRepository.findByFilename(realFilename);
 
                 if (fileMeta == null) {
                     if (requestInfo.getBlockIndex() == 1) {
-                        fileMeta = new FileMetadata(filename, 0, owner);
+                        // حفظ الاسم العربي الحقيقي والنظيف
+                        fileMeta = new FileMetadata(realFilename, 0, owner);
                         fileRepository.save(fileMeta);
-                        System.out.println("📝 Yeni dosya kaydedildi: " + filename + " kullanıcı: " + owner);
                     } else {
-                        System.out.println("🚨 HATA: Dosya yükleme sırasında silinmiş! İşlem reddedildi.");
-                        return ResponseEntity.status(409).build(); // 409 Conflict
+                        return ResponseEntity.status(409).build();
                     }
                 }
             }
@@ -83,10 +95,8 @@ public class FileController {
         return ResponseEntity.ok(response);
     }
 
-    // 🟢 2. القائمة (List)
     @GetMapping("/list/{owner}")
     public ResponseEntity<List<String>> listFiles(@PathVariable String owner) {
-        System.out.println("📂 Dosya listeleme isteği: " + owner);
         List<FileMetadata> userFiles = fileRepository.findByOwner(owner);
         List<String> fileNames = userFiles.stream()
                 .map(FileMetadata::getFilename)
@@ -95,22 +105,13 @@ public class FileController {
         return ResponseEntity.ok(fileNames);
     }
 
-    // 🟢 3. البحث (Download Location)
     @GetMapping("/locate/{filename:.+}")
     public ResponseEntity<String> locateFile(
             @PathVariable String filename,
             @RequestParam(name = "owner") String owner) {
 
-        System.out.println("🔍 araştırma talebi : " + filename);
-
-        FileMetadata fileMeta = fileRepository.findByFilename(filename);
-
-        if (fileMeta == null) {
-            try {
-                String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
-                fileMeta = fileRepository.findByFilename(decodedName);
-            } catch (Exception e) {}
-        }
+        String realFilename = decodeFilename(filename);
+        FileMetadata fileMeta = fileRepository.findByFilename(realFilename);
 
         if (fileMeta == null || !fileMeta.getOwner().equals(owner)) {
             return ResponseEntity.status(404).body("DOSYA_BULUNAMADI");
@@ -122,44 +123,27 @@ public class FileController {
                 .map(WorkerNode::getUrl)
                 .orElse(null);
 
-        if (workerUrl == null) {
-            return ResponseEntity.status(503).body("WORKER_YOK");
-        }
+        if (workerUrl == null) return ResponseEntity.status(503).body("WORKER_YOK");
 
         return ResponseEntity.ok(workerUrl);
     }
 
-    // 🔴 4. الحذف (Delete)
     @Transactional
     @DeleteMapping("/delete/{filename:.+}")
     public ResponseEntity<String> deleteFile(
             @PathVariable String filename,
             @RequestParam(name = "owner") String owner) {
 
-        System.out.println("🗑️ Master: Silme isteği -> " + filename + " (" + owner + ")");
-
-        FileMetadata fileMeta = fileRepository.findByFilename(filename);
-
-        if (fileMeta == null) {
-            try {
-                String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
-                fileMeta = fileRepository.findByFilename(decodedName);
-                if (fileMeta != null) {
-                    System.out.println("✅ Dosya decode edilerek bulundu: " + decodedName);
-                }
-            } catch (Exception e) {}
-        }
+        String realFilename = decodeFilename(filename);
+        FileMetadata fileMeta = fileRepository.findByFilename(realFilename);
 
         if (fileMeta == null) {
-            System.out.println("❌ HATA: Dosya veritabanında bulunamadı!");
             return ResponseEntity.status(404).body("HATA: Dosya bulunamadı!");
         }
 
         if (!fileMeta.getOwner().equals(owner)) {
             return ResponseEntity.status(403).body("HATA: Bu dosyayı silmeye yetkiniz yok!");
         }
-
-        String realFilename = fileMeta.getFilename();
 
         try {
             List<BlockMetadata> allBlocks = blockRepository.findAll();
@@ -180,26 +164,28 @@ public class FileController {
                     try {
                         String workerDeleteUrl = worker.getUrl() + "/api/data/delete/" + base64Name;
                         restTemplate.delete(workerDeleteUrl);
-                        System.out.println("📤 Silme isteği Worker'a gönderildi : " + worker.getUrl());
-                    } catch (Exception ignored) {
-                        System.out.println("⚠️ Worker Erişilemiyor: " + worker.getUrl());
-                    }
+                    } catch (Exception ignored) {}
                 }
             }
+
+            // 🟢 إرسال إشعار حذف الملف
+            notificationService.addNotification(
+                    "warning",
+                    "Dosya Silindi",
+                    owner + " kullanıcısı '" + realFilename + "' adlı dosyayı sistemden sildi."
+            );
 
             return ResponseEntity.ok("Dosya başarıyla silindi.");
 
         } catch (Exception e) {
-            e.printStackTrace();
             return ResponseEntity.status(500).body("Veritabanı hatası: " + e.getMessage());
         }
     }
 
-    // 🟢 البحث عن بلوك معين
     @GetMapping("/locate-block/{blockId:.+}")
     public ResponseEntity<String> locateBlock(@PathVariable String blockId) {
         try {
-            String decodedBlockId = URLDecoder.decode(blockId, StandardCharsets.UTF_8.toString());
+            String decodedBlockId = decodeFilename(blockId);
             List<BlockMetadata> blocks = blockRepository.findByBlockId(decodedBlockId);
 
             for (BlockMetadata block : blocks) {
@@ -208,17 +194,11 @@ public class FileController {
                 }
             }
             return ResponseEntity.status(404).body("BLOK_BULUNAMADI");
-
         } catch (Exception e) {
             return ResponseEntity.status(500).body("HATA: " + e.getMessage());
         }
     }
 
-    // =========================================================================
-    // 🟢 الميزات الجديدة: تحديث بصمة التشفير (MD5) وجلب تفاصيل الملف (File Info)
-    // =========================================================================
-
-    // 🟢 تحديث البصمة وحجم الملف النهائي بعد انتهاء الرفع
     @PostMapping("/update-checksum")
     public ResponseEntity<String> updateChecksum(
             @RequestParam String filename,
@@ -226,24 +206,34 @@ public class FileController {
             @RequestParam long fileSize,
             @RequestParam String checksum) {
 
-        FileMetadata fileMeta = fileRepository.findByFilename(filename);
+        // 🟢 فك التشفير ليتمكن من العثور على الملف الصحيح
+        String realFilename = decodeFilename(filename);
+        FileMetadata fileMeta = fileRepository.findByFilename(realFilename);
+
         if (fileMeta != null && fileMeta.getOwner().equals(owner)) {
             fileMeta.setFileSize(fileSize);
             fileMeta.setMd5Checksum(checksum);
             fileRepository.save(fileMeta);
+
+            // 🟢 إرسال إشعار نجاح الرفع بالاسم العربي الصحيح!
+            notificationService.addNotification(
+                    "success",
+                    "Yeni Dosya Yüklendi",
+                    owner + " kullanıcısı '" + realFilename + "' adlı dosyayı sisteme başarıyla yükledi."
+            );
+
             return ResponseEntity.ok("OK");
         }
         return ResponseEntity.status(404).body("Dosya bulunamadı veya yetkisiz.");
     }
 
-    // 🟢 "أشعة إكس": جلب تفاصيل الملف الهندسي (Metadata & Replication Map)
     @GetMapping("/info/{filename:.+}")
     public ResponseEntity<Map<String, Object>> getFileInfo(
             @PathVariable String filename,
             @RequestParam String owner) {
 
         try {
-            String decodedName = URLDecoder.decode(filename, StandardCharsets.UTF_8.toString());
+            String decodedName = decodeFilename(filename);
             FileMetadata fileMeta = fileRepository.findByFilename(decodedName);
 
             if (fileMeta == null || !fileMeta.getOwner().equals(owner)) {
@@ -255,18 +245,14 @@ public class FileController {
             info.put("size", fileMeta.getFileSize());
             info.put("checksum", fileMeta.getMd5Checksum() != null ? fileMeta.getMd5Checksum() : "YOK");
 
-            // البحث عن جميع البلوكات الخاصة بهذا الملف
             List<BlockMetadata> allBlocks = blockRepository.findAll().stream()
                     .filter(b -> b.getBlockId() != null && b.getBlockId().startsWith(decodedName))
                     .collect(Collectors.toList());
 
-            // تجميع البلوكات حسب رقم البلوك (Block Index) لمعرفة النسخ المتعددة
             Map<String, List<String>> blockLocations = new TreeMap<>();
-
             for (BlockMetadata block : allBlocks) {
                 String bId = block.getBlockId();
                 String workerInfo = block.getWorker().getUrl() + (block.getWorker().isActive() ? " (Aktif)" : " (ÖLÜ)");
-
                 blockLocations.computeIfAbsent(bId, k -> new ArrayList<>()).add(workerInfo);
             }
 
@@ -280,33 +266,24 @@ public class FileController {
         }
     }
 
-    // =========================================================================
-    // 🟢 إضافة جديدة: جلب جميع الملفات مع تفاصيلها لعرضها في لوحة التحكم (Overview)
-    // =========================================================================
     @GetMapping("/all-files-info")
     public ResponseEntity<List<Map<String, Object>>> getAllFilesForDashboard() {
         try {
-            // جلب جميع الملفات من قاعدة البيانات
             List<FileMetadata> allFiles = fileRepository.findAll();
             List<Map<String, Object>> responseList = new ArrayList<>();
-
-            // جلب جميع البلوكات مرة واحدة لتسريع البحث
             List<BlockMetadata> allBlocks = blockRepository.findAll();
 
             for (FileMetadata fileMeta : allFiles) {
                 Map<String, Object> fileData = new HashMap<>();
-                fileData.put("id", fileMeta.getFilename()); // نستخدم الاسم كمعرف فريد مؤقتاً
+                fileData.put("id", fileMeta.getFilename());
                 fileData.put("filename", fileMeta.getFilename());
                 fileData.put("size", fileMeta.getFileSize());
-                // 🟢 السطر الجديد: إرسال اسم المالك للواجهة
                 fileData.put("owner", fileMeta.getOwner());
 
-                // حساب عدد البلوكات (النسخ) لهذا الملف
                 long blocksCount = allBlocks.stream()
                         .filter(b -> b.getBlockId() != null && b.getBlockId().startsWith(fileMeta.getFilename()))
                         .count();
                 fileData.put("nodes", blocksCount > 0 ? blocksCount : 1);
-
 
                 fileData.put("uploadedAt", fileMeta.getUploadedAt() != null ? fileMeta.getUploadedAt().toString() : java.time.LocalDateTime.now().toString());
 
@@ -315,7 +292,6 @@ public class FileController {
 
             return ResponseEntity.ok(responseList);
         } catch (Exception e) {
-            System.err.println("HATA: Dashboard dosyaları çekilemedi - " + e.getMessage());
             return ResponseEntity.status(500).body(null);
         }
     }

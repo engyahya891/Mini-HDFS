@@ -8,12 +8,15 @@ import com.hdfs.namenode.model.BlockMetadata;
 import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.BlockRepository;
 import com.hdfs.namenode.repository.WorkerRepository;
+import com.hdfs.namenode.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/worker")
@@ -24,6 +27,12 @@ public class WorkerController {
 
     @Autowired
     private BlockRepository blockRepository;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    // 🟢 ذاكرة مؤقتة لمنع تكرار إشعارات المساحة الممتلئة
+    private static final Map<String, Boolean> storageWarningsSent = new ConcurrentHashMap<>();
 
     @PostMapping("/register")
     public ResponseEntity<String> registerWorker(
@@ -36,12 +45,15 @@ public class WorkerController {
         }
 
         String workerUrl = "http://" + ipAddress + ":" + request.getPort();
-        System.out.println("🔔 Katılma isteği alındı: " + workerUrl);
 
         WorkerNode worker = workerRepository.findByUrl(workerUrl);
         if (worker == null) {
             worker = new WorkerNode(workerUrl);
-            System.out.println("🆕 Yeni worker kümeye katıldı: " + workerUrl);
+            notificationService.addNotification(
+                    "success",
+                    "Yeni Düğüm Eklendi",
+                    workerUrl + " adresli Worker kümeye başarıyla katıldı."
+            );
         }
 
         worker.setStoragePath(request.getStoragePath());
@@ -70,6 +82,27 @@ public class WorkerController {
         long totalMB = request.getTotalSpace() / (1024 * 1024);
         worker.setStorageInfo(usedMB + " MB / " + totalMB + " MB");
 
+        // 🟢 منطق الإشعار الذكي (مرة واحدة فقط)
+        if (request.getTotalSpace() > 0) {
+            double usagePercentage = (double) request.getUsedSpace() / request.getTotalSpace();
+            String workerId = request.getWorkerId();
+
+            if (usagePercentage > 0.90) {
+                // إذا لم نرسل تحذيراً من قبل، نرسل الآن
+                if (!storageWarningsSent.getOrDefault(workerId, false)) {
+                    notificationService.addNotification(
+                            "warning",
+                            "Kritik Depolama Alanı",
+                            workerId + " düğümünün depolama alanı %90'ı aştı!"
+                    );
+                    storageWarningsSent.put(workerId, true); // نعلم النظام أننا أرسلنا
+                }
+            } else {
+                // إذا انخفضت المساحة، نعيد تعيين التحذير لكي يرسل مستقبلاً إذا امتلأت مجدداً
+                storageWarningsSent.put(workerId, false);
+            }
+        }
+
         workerRepository.save(worker);
         return ResponseEntity.ok().build();
     }
@@ -77,11 +110,8 @@ public class WorkerController {
     @PostMapping("/report")
     @Transactional
     public ResponseEntity<?> report(@RequestBody StorageReportRequest req) {
-
         WorkerNode worker = workerRepository.findByUrl(req.getWorkerUrl());
-        if (worker == null) {
-            return ResponseEntity.badRequest().body("Bilinmeyen Worker");
-        }
+        if (worker == null) return ResponseEntity.badRequest().body("Bilinmeyen Worker");
 
         worker.setActive(true);
         worker.setLastHeartbeat(LocalDateTime.now());
@@ -91,7 +121,6 @@ public class WorkerController {
 
         if (req.getBlockIds() != null) {
             for (String blockId : req.getBlockIds()) {
-
                 BlockMetadata block = new BlockMetadata();
                 block.setBlockId(blockId);
                 block.setWorker(worker);
@@ -103,16 +132,9 @@ public class WorkerController {
                 } else {
                     block.setFilename(blockId);
                 }
-
                 blockRepository.save(block);
             }
         }
-
-        System.out.println(
-                "✅ Rapor işlendi: " + worker.getUrl() +
-                        " (" + (req.getBlockIds() != null ? req.getBlockIds().size() : 0) + " blok)"
-        );
-
         return ResponseEntity.ok("Rapor güncellendi");
     }
 }
