@@ -426,6 +426,24 @@ public class ClientApplication implements CommandLineRunner {
         } catch (Exception e) { System.out.println("❌ Listeleme hatası: " + e.getMessage()); }
     }
 
+    // 🟢 دالة لجلب حجم البلوك من الماستر ديناميكياً
+    private int getDynamicBlockSize() {
+        try {
+            String configUrl = MASTER_URL + "/api/admin/config";
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    configUrl, HttpMethod.GET, null, new ParameterizedTypeReference<Map<String, Object>>() {}
+            );
+
+            if (response.getBody() != null && response.getBody().containsKey("blockSize")) {
+                int size = ((Number) response.getBody().get("blockSize")).intValue();
+                return size;
+            }
+        } catch (Exception e) {
+            System.out.println("⚠️ Uyarı: Master'dan blok boyutu alınamadı! Varsayılan (64MB) kullanılacak.");
+        }
+        return 64; // القيمة الافتراضية في حال انقطاع الاتصال أو حدوث خطأ
+    }
+
     // 🟢 الرفع + حساب MD5 وإرساله
     private void uploadFile(String path) {
         File file = new File(path);
@@ -435,10 +453,14 @@ public class ClientApplication implements CommandLineRunner {
         }
 
         long fileSize = file.length();
-        long blockSize = 64 * 1024 * 1024;
+
+        // 🟢 جلب الحجم ديناميكياً من الماستر وتحويله إلى بايتات
+        int dynamicBlockSizeMB = getDynamicBlockSize();
+        long blockSize = dynamicBlockSizeMB * 1024L * 1024L;
+
         int totalBlocks = (int) Math.ceil((double) fileSize / blockSize);
 
-        System.out.println("📦 Dosya: " + file.getName() + " (" + totalBlocks + " blok) yükleniyor...");
+        System.out.println("📦 Dosya: " + file.getName() + " (" + totalBlocks + " blok, her biri maks " + dynamicBlockSizeMB + "MB) yükleniyor...");
 
         long startTime = System.currentTimeMillis();
         boolean uploadSuccess = true;
@@ -462,8 +484,9 @@ public class ClientApplication implements CommandLineRunner {
                 BlockAllocation request = new BlockAllocation();
                 request.setBlockIndex(blockIndex);
 
+                // 🟢 نستخدم التشفير UTF-8 لاسم الملف
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
-                        + "&filename=" + file.getName();
+                        + "&filename=" + encodeUrlParam(file.getName());
 
                 BlockAllocation response = null;
                 try {
@@ -517,7 +540,9 @@ public class ClientApplication implements CommandLineRunner {
                 // 🟢 بعد نجاح الرفع، نرسل البصمة للماستر
                 String checksum = bytesToHex(md5Digest.digest());
                 try {
-                    String updateUrl = MASTER_URL + "/api/file/update-checksum?filename=" + URLEncoder.encode(file.getName(), StandardCharsets.UTF_8.toString()) + "&owner=" + CURRENT_USER + "&fileSize=" + fileSize + "&checksum=" + checksum;
+                    // 🟢 إرسال بصمة MD5 باسم مشفر بشكل صحيح
+
+                    String updateUrl = MASTER_URL + "/api/file/update-checksum?filename=" + encodeUrlParam(file.getName()) + "&owner=" + CURRENT_USER + "&fileSize=" + fileSize + "&checksum=" + checksum;
                     restTemplate.postForEntity(updateUrl, null, String.class);
                     System.out.println("🔒 MD5 Bütünlük Özeti Kaydedildi: " + checksum);
                 } catch (Exception e) {
@@ -692,6 +717,15 @@ public class ClientApplication implements CommandLineRunner {
             if (os.contains("win")) new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
             else { System.out.print("\033[H\033[2J"); System.out.flush(); }
         } catch (Exception e) { for (int i = 0; i < 50; i++) System.out.println(); }
+    }
+
+    // 🟢 دالة مساعدة لتشفير أسماء الملفات التي تحتوي مسافات أو حروف عربية/تركية
+    private String encodeUrlParam(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20");
+        } catch (Exception e) {
+            return value;
+        }
     }
 
     private void printPerformanceReport(long fileSizeBytes, long startTimeMs, long endTimeMs, String operationType) {

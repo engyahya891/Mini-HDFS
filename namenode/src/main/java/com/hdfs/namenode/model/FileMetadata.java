@@ -1,6 +1,8 @@
 package com.hdfs.namenode.model;
 
+
 import jakarta.persistence.*;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -26,6 +28,7 @@ public class FileMetadata {
     // قفل التزامن المتفائل (Optimistic Locking)
     @Version
     private Long version;
+
 
     // قائمة البلوكات
     @OneToMany(mappedBy = "fileMetadata", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
