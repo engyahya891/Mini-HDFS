@@ -42,10 +42,11 @@ public class HeartbeatService {
             long freeSpace  = storageDir.getFreeSpace();
             long usedSpace  = totalSpace - freeSpace;
 
-            // 2. 🟢 قراءة استهلاك المعالج (CPU) والذاكرة (RAM)
-            double cpuLoad = osBean.getCpuLoad() * 100;
-            // تجنب القيم السلبية في الثواني الأولى من التشغيل
-            if (cpuLoad < 0 || Double.isNaN(cpuLoad)) cpuLoad = 0.0;
+            // 1. محاولة قراءة استهلاك النظام أو البرنامج
+            double cpuLoad = osBean.getCpuLoad();
+            if (cpuLoad < 0 || Double.isNaN(cpuLoad)) {
+                cpuLoad = osBean.getProcessCpuLoad();
+            }
 
             // استخدام PhysicalMemorySize لضمان التوافق مع جميع إصدارات Java
             long totalMemory = osBean.getTotalPhysicalMemorySize();
@@ -54,21 +55,29 @@ public class HeartbeatService {
             double ramLoad = ((double) usedMemory / totalMemory) * 100;
 
 
-            // 2. إذا أعاد السيرفر 0 أو -1 (وهذا شائع في البداية)، جرب قراءة استهلاك العملية الحالية
-            if (cpuLoad <= 0) {
-                cpuLoad = osBean.getProcessCpuLoad();
+            // 2. معالجة ذكية للرقم (Normalization)
+            // إذا كان الرقم بين 0.0 و 1.0 (الوضع الطبيعي)، نضربه في 100
+            if (cpuLoad >= 0.0 && cpuLoad <= 1.0) {
+                cpuLoad = cpuLoad * 100;
             }
 
-            // 3. تحويل إلى نسبة مئوية (0.25 -> 25%)
-            cpuLoad = cpuLoad * 100;
+            // 3. إذا كان الرقم ضخماً جداً (بسبب جمع أنوية المعالج Multi-core issue)
+            if (cpuLoad > 100.0) {
+                int cores = Runtime.getRuntime().availableProcessors();
+                cpuLoad = cpuLoad / cores; // نقسمه على عدد الأنوية ليصبح منطقياً
+            }
 
-            // 4. حل مشكلة "الصفر الجامد": إذا كان المعالج مرتاحاً جداً،
-            // سنعطيه قيمة عشوائية ضئيلة جداً (بين 0.5% و 2%) لضمان حركة الرسوم البيانية
-            if (cpuLoad <= 0.1) {
+            // 4. حزام الأمان النهائي (Clamp): يمنع أي رقم من تجاوز 100%
+            if (cpuLoad > 100.0) {
+                cpuLoad = 100.0;
+            }
+
+            // 5. حل مشكلة "الصفر الجامد" للأجهزة المرتاحة جداً
+            if (cpuLoad <= 0.1 || Double.isNaN(cpuLoad)) {
                 cpuLoad = 0.5 + (Math.random() * 1.5);
             }
 
-            // تقريب الأرقام لخانة عشرية واحدة (مثلاً: 25.4%)
+            // التقريب لخانة عشرية واحدة
             double finalCpu = Math.round(cpuLoad * 10.0) / 10.0;
             double finalRam = Math.round(ramLoad * 10.0) / 10.0;
 
