@@ -1,16 +1,23 @@
 package com.hdfs.common.protocol;
 
 public class HeartbeatRequest {
-    private String workerId;  // هذا سيحمل رابط الوركر (URL)
-    private long usedSpace;   // المساحة المستخدمة
-    private long totalSpace;  // 🟢 الإضافة الجديدة: المساحة الكلية
+    private String workerId;
+    private long usedSpace;
+    private long totalSpace;
 
+    // 🟢 الحقول الجديدة للأداء
+    private double cpuUsage;
+    private double ramUsage;
+
+    // المُنشئ (Constructor) القديم والجديد
     public HeartbeatRequest() {}
 
-    public HeartbeatRequest(String workerId, long usedSpace, long totalSpace) {
+    public HeartbeatRequest(String workerId, long usedSpace, long totalSpace, double cpuUsage, double ramUsage) {
         this.workerId = workerId;
         this.usedSpace = usedSpace;
         this.totalSpace = totalSpace;
+        this.cpuUsage = cpuUsage;
+        this.ramUsage = ramUsage;
     }
 
     // Getters and Setters
@@ -22,4 +29,11 @@ public class HeartbeatRequest {
 
     public long getTotalSpace() { return totalSpace; }
     public void setTotalSpace(long totalSpace) { this.totalSpace = totalSpace; }
+
+    // 🟢 Getters and Setters الجديدة
+    public double getCpuUsage() { return cpuUsage; }
+    public void setCpuUsage(double cpuUsage) { this.cpuUsage = cpuUsage; }
+
+    public double getRamUsage() { return ramUsage; }
+    public void setRamUsage(double ramUsage) { this.ramUsage = ramUsage; }
 }

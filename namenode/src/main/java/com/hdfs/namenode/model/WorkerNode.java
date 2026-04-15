@@ -20,6 +20,8 @@ public class WorkerNode {
     private String storagePath;
     private long capacity;
     private long used;
+    private double cpuUsage;
+    private double ramUsage;
 
     // 🟢 الإضافة الضرورية: هذا الحقل سيخزن النص "500MB / 1000MB" للعرض السهل
     private String storageInfo;
@@ -36,6 +38,8 @@ public class WorkerNode {
     }
 
     // --- Getters & Setters ---
+
+
 
     public Long getId() {
         return id;
@@ -101,4 +105,10 @@ public class WorkerNode {
     public void setLastHeartbeat(LocalDateTime lastHeartbeat) {
         this.lastHeartbeat = lastHeartbeat;
     }
+
+    public double getCpuUsage() { return cpuUsage; }
+    public void setCpuUsage(double cpuUsage) { this.cpuUsage = cpuUsage; }
+
+    public double getRamUsage() { return ramUsage; }
+    public void setRamUsage(double ramUsage) { this.ramUsage = ramUsage; }
 }

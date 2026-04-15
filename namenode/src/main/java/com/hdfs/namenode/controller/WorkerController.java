@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -63,6 +64,7 @@ public class WorkerController {
         worker.setStoragePath(request.getStoragePath());
         worker.setActive(true);
         worker.setLastHeartbeat(LocalDateTime.now());
+
         workerRepository.save(worker);
 
         // داخل دالة registerWorker
@@ -84,6 +86,8 @@ public class WorkerController {
         worker.setLastHeartbeat(LocalDateTime.now());
         worker.setUsed(request.getUsedSpace());
         worker.setCapacity(request.getTotalSpace());
+        worker.setCpuUsage(request.getCpuUsage());
+        worker.setRamUsage(request.getRamUsage());
 
         long usedMB = request.getUsedSpace() / (1024 * 1024);
         long totalMB = request.getTotalSpace() / (1024 * 1024);
