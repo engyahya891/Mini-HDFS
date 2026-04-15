@@ -1,5 +1,6 @@
 package com.hdfs.namenode.controller;
 
+import com.hdfs.namenode.service.LogService;
 import jakarta.servlet.http.HttpServletRequest;
 import com.hdfs.common.protocol.WorkerRegisterRequest;
 import com.hdfs.common.protocol.StorageReportRequest;
@@ -31,6 +32,9 @@ public class WorkerController {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private LogService logService; // 🟢 أضف هذا السطر
+
     // 🟢 ذاكرة مؤقتة لمنع تكرار إشعارات المساحة الممتلئة
     private static final Map<String, Boolean> storageWarningsSent = new ConcurrentHashMap<>();
 
@@ -61,6 +65,9 @@ public class WorkerController {
         worker.setLastHeartbeat(LocalDateTime.now());
         workerRepository.save(worker);
 
+        // داخل دالة registerWorker
+        logService.addLog("INFO", "NodeManager", workerUrl + " adresli yeni Worker kümeye katıldı.");
+
         return ResponseEntity.ok("Kümeye hoş geldiniz!");
     }
 
@@ -90,6 +97,9 @@ public class WorkerController {
             if (usagePercentage > 0.90) {
                 // إذا لم نرسل تحذيراً من قبل، نرسل الآن
                 if (!storageWarningsSent.getOrDefault(workerId, false)) {
+                    // داخل شرط تجاوز المساحة 90%
+                    logService.addLog("WARN", "StorageMonitor", request.getWorkerId() + " düğümünün depolama alanı kritik seviyede (>%90).");
+
                     notificationService.addNotification(
                             "warning",
                             "Kritik Depolama Alanı",

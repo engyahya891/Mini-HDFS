@@ -18,6 +18,9 @@ public class WorkerHealthMonitor {
     @Autowired
     private NotificationService notificationService; // 🟢 حقن خدمة الإشعارات
 
+    @Autowired
+    private LogService logService; // 🟢 أضف هذا السطر
+
     // يفحص صحة العمال كل 10 ثوانٍ
     @Scheduled(fixedRate = 10000)
     public void checkWorkerHealth() {
@@ -32,6 +35,9 @@ public class WorkerHealthMonitor {
                 workerRepository.save(worker);
 
                 System.out.println("🔴 Düğüm bağlantısı koptu: " + worker.getUrl());
+
+                // عند اكتشاف انقطاع الاتصال
+                logService.addLog("ERROR", "HealthMonitor", worker.getUrl() + " IP adresli düğüm yanıt vermiyor (Offline)!");
 
                 // 🔴 إطلاق إشعار الانقطاع للواجهة!
                 notificationService.addNotification(

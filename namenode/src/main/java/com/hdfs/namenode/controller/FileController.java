@@ -6,6 +6,7 @@ import com.hdfs.namenode.model.WorkerNode;
 import com.hdfs.namenode.repository.BlockRepository;
 import com.hdfs.namenode.repository.FileRepository;
 import com.hdfs.namenode.repository.WorkerRepository;
+import com.hdfs.namenode.service.LogService;
 import com.hdfs.namenode.service.NotificationService;
 import com.hdfs.common.protocol.BlockAllocation;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ public class FileController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private LogService logService; // 🟢 أضف هذا السطر
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -167,6 +171,8 @@ public class FileController {
                     } catch (Exception ignored) {}
                 }
             }
+            // عند نجاح حذف الملف
+            logService.addLog("WARN", "FileSystem", owner + " kullanıcısı '" + realFilename + "' adlı dosyayı sistemden sildi.");
 
             // 🟢 إرسال إشعار حذف الملف
             notificationService.addNotification(
@@ -214,6 +220,9 @@ public class FileController {
             fileMeta.setFileSize(fileSize);
             fileMeta.setMd5Checksum(checksum);
             fileRepository.save(fileMeta);
+
+            // عند نجاح تحديث البصمة (اكتمال الرفع)
+            logService.addLog("INFO", "FileSystem", owner + " kullanıcısı '" + realFilename + "' adlı dosyayı başarıyla yükledi.");
 
             // 🟢 إرسال إشعار نجاح الرفع بالاسم العربي الصحيح!
             notificationService.addNotification(
