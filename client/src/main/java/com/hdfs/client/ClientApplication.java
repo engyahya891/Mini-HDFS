@@ -444,7 +444,7 @@ public class ClientApplication implements CommandLineRunner {
         return 64; // القيمة الافتراضية في حال انقطاع الاتصال أو حدوث خطأ
     }
 
-    // 🟢 الرفع + حساب MD5 وإرساله
+
     private void uploadFile(String path) {
         File file = new File(path);
         if (!file.exists()) {
@@ -452,9 +452,29 @@ public class ClientApplication implements CommandLineRunner {
             return;
         }
 
+        // ================================================================
+        // 🟢 إضافة جديدة: فحص ميزة (Data Deduplication) قبل بدء الرفع
+        // ================================================================
+        try {
+            String checkUrl = MASTER_URL + "/api/file/info/" + encodeUrlParam(file.getName()) + "?owner=" + CURRENT_USER;
+            ResponseEntity<String> checkResponse = restTemplate.getForEntity(checkUrl, String.class);
+
+            // إذا رجع السيرفر 200 OK، يعني الملف موجود مسبقاً لهذا المستخدم
+            if (checkResponse.getStatusCode() == HttpStatus.OK) {
+                System.out.println("\n⚠️ HATA: Bu dosya zaten sistemde mevcut! (Veri Tekilleştirme aktif)");
+                System.out.println("🛑 Yükleme iptal edildi. Ağ bant genişliği ve depolama alanı korundu.\n");
+                return; // نوقف الدالة هنا ولا نكمل الرفع!
+            }
+        } catch (HttpClientErrorException.NotFound e) {
+            // إذا رجع 404 يعني الملف غير موجود، وهذا هو المطلوب (نكمل الرفع طبيعي)
+        } catch (Exception e) {
+            // نتجاهل أي خطأ آخر في الاتصال ونحاول الرفع
+        }
+        // ================================================================
+
         long fileSize = file.length();
 
-        // 🟢 جلب الحجم ديناميكياً من الماستر وتحويله إلى بايتات
+        // جلب الحجم ديناميكياً من الماستر وتحويله إلى بايتات
         int dynamicBlockSizeMB = getDynamicBlockSize();
         long blockSize = dynamicBlockSizeMB * 1024L * 1024L;
 
@@ -464,7 +484,7 @@ public class ClientApplication implements CommandLineRunner {
 
         long startTime = System.currentTimeMillis();
         boolean uploadSuccess = true;
-        MessageDigest md5Digest; // 🟢 حساب البصمة
+        MessageDigest md5Digest; // حساب البصمة
         try {
             md5Digest = MessageDigest.getInstance("MD5");
         } catch (Exception e) {
@@ -478,13 +498,13 @@ public class ClientApplication implements CommandLineRunner {
             int blockIndex = 1;
 
             while ((bytesRead = fis.read(buffer)) != -1) {
-                // 🟢 تحديث البصمة مع كل بلوك نقرأه
+                // تحديث البصمة مع كل بلوك نقرأه
                 md5Digest.update(buffer, 0, bytesRead);
 
                 BlockAllocation request = new BlockAllocation();
                 request.setBlockIndex(blockIndex);
 
-                // 🟢 نستخدم التشفير UTF-8 لاسم الملف
+                // نستخدم التشفير UTF-8 لاسم الملف
                 String allocateUrl = MASTER_URL + "/api/file/allocate-block?owner=" + CURRENT_USER
                         + "&filename=" + encodeUrlParam(file.getName());
 
@@ -492,6 +512,7 @@ public class ClientApplication implements CommandLineRunner {
                 try {
                     response = restTemplate.postForObject(allocateUrl, request, BlockAllocation.class);
                 } catch (HttpClientErrorException e) {
+                    // هذا الخطأ يظهر إذا قام مدير النظام بحذف الملف أثناء قيام العميل برفعه!
                     if (e.getStatusCode() == HttpStatus.CONFLICT) {
                         System.out.println("\n\n❌ KRİTİK HATA: Yükleme sırasında dosya sunucudan silindi!");
                         System.out.println("🛑 Yükleme işlemi derhal iptal ediliyor.");
@@ -537,11 +558,10 @@ public class ClientApplication implements CommandLineRunner {
             if (uploadSuccess) {
                 System.out.println("\n🎉 Yükleme tamamlandı!");
 
-                // 🟢 بعد نجاح الرفع، نرسل البصمة للماستر
+                // بعد نجاح الرفع، نرسل البصمة للماستر
                 String checksum = bytesToHex(md5Digest.digest());
                 try {
-                    // 🟢 إرسال بصمة MD5 باسم مشفر بشكل صحيح
-
+                    // إرسال بصمة MD5 باسم مشفر بشكل صحيح
                     String updateUrl = MASTER_URL + "/api/file/update-checksum?filename=" + encodeUrlParam(file.getName()) + "&owner=" + CURRENT_USER + "&fileSize=" + fileSize + "&checksum=" + checksum;
                     restTemplate.postForEntity(updateUrl, null, String.class);
                     System.out.println("🔒 MD5 Bütünlük Özeti Kaydedildi: " + checksum);
