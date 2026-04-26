@@ -258,11 +258,14 @@ public class FileController {
                     .filter(b -> b.getBlockId() != null && b.getBlockId().startsWith(decodedName))
                     .collect(Collectors.toList());
 
-            Map<String, List<String>> blockLocations = new TreeMap<>();
+            // 🟢 التعديل السحري: استخدام Set بدلاً من List لمنع التكرار نهائياً!
+            Map<String, Set<String>> blockLocations = new TreeMap<>();
             for (BlockMetadata block : allBlocks) {
                 String bId = block.getBlockId();
                 String workerInfo = block.getWorker().getUrl() + (block.getWorker().isActive() ? " (Aktif)" : " (ÖLÜ)");
-                blockLocations.computeIfAbsent(bId, k -> new ArrayList<>()).add(workerInfo);
+
+                // Set سيتجاهل أي عامل مكرر ولن يعرضه إلا مرة واحدة فقط في الـ X-Ray
+                blockLocations.computeIfAbsent(bId, k -> new LinkedHashSet<>()).add(workerInfo);
             }
 
             info.put("blocksCount", blockLocations.size());
@@ -274,7 +277,6 @@ public class FileController {
             return ResponseEntity.status(500).body(null);
         }
     }
-
     @GetMapping("/all-files-info")
     public ResponseEntity<List<Map<String, Object>>> getAllFilesForDashboard() {
         try {
