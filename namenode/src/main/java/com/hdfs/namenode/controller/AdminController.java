@@ -35,6 +35,9 @@ public class AdminController {
     @Autowired
     private BlockRepository blockRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${server.port:8080}")
+    private String serverPort;
+
     // 1. إرجاع حالة النظام (Status)
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getClusterStatus() {
@@ -48,6 +51,13 @@ public class AdminController {
         status.put("totalFiles", fileRepository.count());
         status.put("totalUsers", userRepository.count());
         status.put("health", activeWorkersCount == 0 ? "KRİTİK (Aktif Worker Yok)" : "SAĞLIKLI");
+
+        try {
+            String ipAddress = java.net.InetAddress.getLocalHost().getHostAddress();
+            status.put("masterIp", ipAddress + ":" + serverPort);
+        } catch (Exception e) {
+            status.put("masterIp", "Bilinmiyor:" + serverPort);
+        }
 
         return ResponseEntity.ok(status);
     }
