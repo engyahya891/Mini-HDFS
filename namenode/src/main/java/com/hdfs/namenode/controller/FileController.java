@@ -34,11 +34,17 @@ public class FileController {
     @Autowired
     private FileRepository fileRepository;
 
+
+
     @Autowired
     private NotificationService notificationService;
 
     @Autowired
     private LogService logService; // 🟢 أضف هذا السطر
+
+
+    @Autowired
+    private com.hdfs.namenode.service.SystemConfigManager systemConfigManager;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -51,13 +57,13 @@ public class FileController {
         }
     }
 
-    // داخل دالة allocateBlock في FileController
     @PostMapping("/allocate-block")
     public ResponseEntity<BlockAllocation> allocateBlock(
             @RequestBody BlockAllocation requestInfo,
             @RequestParam(name = "owner", defaultValue = "anonymous") String owner,
             @RequestParam(name = "filename") String filename) {
 
+        // 🟢 إصلاح جذري: فك التشفير قبل فعل أي شيء
         String realFilename = decodeFilename(filename);
 
         List<WorkerNode> activeWorkers = workerRepository.findAll().stream()
@@ -66,44 +72,44 @@ public class FileController {
 
         if (activeWorkers.isEmpty()) return ResponseEntity.status(500).build();
 
-        int replicationFactor = Math.min(activeWorkers.size(), 3); // لنفترض أن النسخ 3
+        // ==============================================================
+        // 🟢 بداية خوارزمية Rack Awareness (توزيع الرفوف) بدلاً من العشوائي 🟢
+        // ==============================================================
+
+        // 🟢 1. جلب التكرار من واجهة الإعدادات (ديناميكياً)
+        int dynamicReplication = systemConfigManager.getReplicationFactor();
+
+        // 🟢 2. تحديد التكرار بناءً على عدد العمال المتاحين والرقم القادم من الإعدادات
+        int replicationFactor = Math.min(activeWorkers.size(), dynamicReplication);
         List<String> selectedUrls = new ArrayList<>();
 
-        // 🟢 بداية خوارزمية Rack Awareness الذكية 🟢
-        // 1. تجميع العمال حسب الرفوف
         Map<String, List<WorkerNode>> racks = activeWorkers.stream()
                 .collect(Collectors.groupingBy(w -> w.getRackId() != null ? w.getRackId() : "Rack-1"));
 
         List<String> availableRacks = new ArrayList<>(racks.keySet());
-        Collections.shuffle(availableRacks); // اختيار رف عشوائي للبدء
+        Collections.shuffle(availableRacks);
 
         String primaryRack = availableRacks.get(0);
         List<WorkerNode> primaryRackWorkers = racks.get(primaryRack);
         Collections.shuffle(primaryRackWorkers);
 
-        // النسخة الأولى: في الرف الأساسي
+        // النسخة الأولى (في الرف الأساسي)
         selectedUrls.add(primaryRackWorkers.get(0).getUrl());
 
-        // النسخة الثانية: في نفس الرف (إذا كان هناك سيرفر آخر فيه لتوفير سرعة الشبكة)
-        if (replicationFactor >= 2) {
-            if (primaryRackWorkers.size() > 1) {
-                selectedUrls.add(primaryRackWorkers.get(1).getUrl());
-            }
+        // النسخة الثانية (في نفس الرف)
+        if (replicationFactor >= 2 && primaryRackWorkers.size() > 1) {
+            selectedUrls.add(primaryRackWorkers.get(1).getUrl());
         }
 
-        // النسخة الثالثة: في رف مختلف تماماً (لحماية البيانات من احتراق الخزانة الأولى)
-        if (replicationFactor >= 3) {
-            if (availableRacks.size() > 1) {
-                String secondaryRack = availableRacks.get(1);
-                List<WorkerNode> secondaryRackWorkers = racks.get(secondaryRack);
-                Collections.shuffle(secondaryRackWorkers);
-                selectedUrls.add(secondaryRackWorkers.get(0).getUrl());
-            }
+        // النسخة الثالثة (في رف مختلف)
+        if (replicationFactor >= 3 && availableRacks.size() > 1) {
+            String secondaryRack = availableRacks.get(1);
+            List<WorkerNode> secondaryRackWorkers = racks.get(secondaryRack);
+            Collections.shuffle(secondaryRackWorkers);
+            selectedUrls.add(secondaryRackWorkers.get(0).getUrl());
         }
 
-        // 🟢 نظام الحماية (Fallback):
-        // إذا فشلت الخوارزمية في إكمال العدد المطلوب (مثلاً المبرمج وضع كل العمال في Rack-1)
-        // نقوم بإكمال العدد المطلوب من أي عامل متاح لتجنب فشل الرفع.
+        // نظام الحماية (إكمال العدد المطلوب)
         if (selectedUrls.size() < replicationFactor) {
             for (WorkerNode worker : activeWorkers) {
                 if (!selectedUrls.contains(worker.getUrl())) {
@@ -112,9 +118,33 @@ public class FileController {
                 }
             }
         }
-        // 🟢 نهاية خوارزمية Rack Awareness 🟢
+        // ==============================================================
+        // 🟢 نهاية خوارزمية توزيع الرفوف 🟢
+        // ==============================================================
 
-        // ... إكمال كود الحفظ العادي (حفظ FileMetadata وإرسال response) ...
+
+        // ==============================================================
+        // 🟢 الكود الأساسي الخاص بك (كما هو تماماً بدون أي تغيير) 🟢
+        // ==============================================================
+        try {
+            if (realFilename != null && !realFilename.isEmpty()) {
+                FileMetadata fileMeta = fileRepository.findByFilename(realFilename);
+
+                if (fileMeta == null) {
+                    if (requestInfo.getBlockIndex() == 1) {
+                        // حفظ الاسم العربي الحقيقي والنظيف
+                        fileMeta = new FileMetadata(realFilename, 0, owner);
+                        fileRepository.save(fileMeta);
+                    } else {
+                        return ResponseEntity.status(409).build();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ hata saving file metadata: " + e.getMessage());
+        }
+        // ==============================================================
+
         BlockAllocation response = new BlockAllocation();
         response.setBlockIndex(requestInfo.getBlockIndex());
         response.setWorkerUrls(selectedUrls);
@@ -285,8 +315,11 @@ public class FileController {
             Map<String, Set<String>> blockLocations = new TreeMap<>();
             for (BlockMetadata block : allBlocks) {
                 String bId = block.getBlockId();
+                // 🟢 1. جلب اسم الرف من النود (وإذا لم يوجد نضع Rack-1)
                 String rackName = block.getWorker().getRackId() != null ? block.getWorker().getRackId() : "Rack-1";
-                String workerInfo = block.getWorker().getUrl() + (block.getWorker().isActive() ? " (Aktif)" : " (ÖLÜ)");
+
+                // 🟢 2. إضافة اسم الرف بين أقواس مربعة [ ] لكي تلتقطه واجهة React
+                String workerInfo = block.getWorker().getUrl() + " [" + rackName + "]" + (block.getWorker().isActive() ? " (Aktif)" : " (ÖLÜ)");
 
                 // Set سيتجاهل أي عامل مكرر ولن يعرضه إلا مرة واحدة فقط في الـ X-Ray
                 blockLocations.computeIfAbsent(bId, k -> new LinkedHashSet<>()).add(workerInfo);
