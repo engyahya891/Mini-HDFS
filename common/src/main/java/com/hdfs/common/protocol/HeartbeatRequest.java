@@ -4,7 +4,7 @@ public class HeartbeatRequest {
     private String workerId;
     private long usedSpace;
     private long totalSpace;
-
+    private String rackId;
     // 🟢 الحقول الجديدة للأداء
     private double cpuUsage;
     private double ramUsage;
@@ -36,4 +36,7 @@ public class HeartbeatRequest {
 
     public double getRamUsage() { return ramUsage; }
     public void setRamUsage(double ramUsage) { this.ramUsage = ramUsage; }
+
+    public String getRackId() { return rackId; }
+    public void setRackId(String rackId) { this.rackId = rackId; }
 }

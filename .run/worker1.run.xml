@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="worker1" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.hdfs.datanode.DataNodeApplication" />
+    <module name="datanode" />
+    <option name="PROGRAM_PARAMETERS" value="--server.port=8082 --worker.rack-id=Rack-1" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

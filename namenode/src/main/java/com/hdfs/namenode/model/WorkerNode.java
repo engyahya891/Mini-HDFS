@@ -1,14 +1,14 @@
 package com.hdfs.namenode.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
+import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
 
 @Entity
 public class WorkerNode {
+
+    @Column(name = "rack_id")
+    private String rackId = "Rack-1";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY) // 🟢 يفضل تحديد الاستراتيجية لتجنب مشاكل الترقيم
@@ -22,6 +22,8 @@ public class WorkerNode {
     private long used;
     private double cpuUsage;
     private double ramUsage;
+
+
 
     // 🟢 الإضافة الضرورية: هذا الحقل سيخزن النص "500MB / 1000MB" للعرض السهل
     private String storageInfo;
@@ -111,4 +113,8 @@ public class WorkerNode {
 
     public double getRamUsage() { return ramUsage; }
     public void setRamUsage(double ramUsage) { this.ramUsage = ramUsage; }
+
+    public String getRackId() { return rackId; }
+    public void setRackId(String rackId) { this.rackId = rackId; }
+
 }

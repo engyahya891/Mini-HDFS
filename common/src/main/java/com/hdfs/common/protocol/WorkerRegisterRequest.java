@@ -6,7 +6,7 @@ public class WorkerRegisterRequest {
     private int port;          // المنفذ الذي يعمل عليه الووركر
     private String storagePath; // مسار التخزين
     private String workerId;    // معرف فريد (اختياري في البداية)
-
+    private String rackId;
     // يجب إضافة Empty Constructor (مهم جداً لـ JSON)
     public WorkerRegisterRequest() {}
 
@@ -21,4 +21,7 @@ public class WorkerRegisterRequest {
 
     public String getStoragePath() { return storagePath; }
     public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
+
+    public String getRackId() { return rackId; }
+    public void setRackId(String rackId) { this.rackId = rackId; }
 }
