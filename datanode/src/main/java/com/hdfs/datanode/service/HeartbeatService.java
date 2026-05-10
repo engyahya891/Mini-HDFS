@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.io.File;
 import java.lang.management.ManagementFactory;
@@ -17,6 +18,9 @@ public class HeartbeatService {
 
     @Value("${server.port}")
     private String port;
+
+    @Value("${worker.rack-id:Rack-1}") // 🟢 قراءة الرف من الإعدادات (وافتراضياً Rack-1)
+    private String rackId;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -87,6 +91,7 @@ public class HeartbeatService {
 
             // 4. Heartbeat isteğini hazırla (تم إضافة finalCpu و finalRam)
             HeartbeatRequest request = new HeartbeatRequest(myUrl, usedSpace, totalSpace, finalCpu, finalRam);
+            request.setRackId(rackId);
 
             // 5. Master'a gönder
             restTemplate.postForObject(
@@ -95,6 +100,7 @@ public class HeartbeatService {
                     Void.class
             );
 
+            System.out.println("🚀 Gönderilen Hearthbeat porttan : " + port + " | Raf : " + rackId);
             // طباعة للتأكد من الأرقام في الكونسول الخاص بالـ Worker
             System.out.println("💓 Heartbeat gönderildi: "
                     + MasterContext.get()

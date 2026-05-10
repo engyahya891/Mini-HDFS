@@ -75,12 +75,13 @@ public class WorkerController {
 
     @PostMapping("/heartbeat")
     public ResponseEntity<Void> receiveHeartbeat(@RequestBody HeartbeatRequest request) {
-
         WorkerNode worker = workerRepository.findByUrl(request.getWorkerId());
         if (worker == null) {
             worker = new WorkerNode(request.getWorkerId());
             worker.setStoragePath("Otomatik Algılandı");
         }
+        // 🟢 تحديث بيانات النود بما فيها الرف
+        worker.setRackId(request.getRackId() != null ? request.getRackId() : "Rack-1");
 
         worker.setActive(true);
         worker.setLastHeartbeat(LocalDateTime.now());

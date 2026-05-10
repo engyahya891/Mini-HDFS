@@ -61,7 +61,6 @@ public class AdminController {
 
         return ResponseEntity.ok(status);
     }
-
     // 2. قائمة الخوادم التفصيلية (list-workers)
     @GetMapping("/workers")
     public ResponseEntity<List<Map<String, Object>>> listWorkers() {
@@ -76,11 +75,18 @@ public class AdminController {
             map.put("capacity", w.getCapacity());
             map.put("used", w.getUsed());
             map.put("storageInfo", w.getStorageInfo());
+
+            // 🟢 الإضافة السحرية هنا: إرسال اسم الرف إلى React
+            map.put("rackId", w.getRackId() != null ? w.getRackId() : "Rack-1");
+
+
+
             return map;
         }).collect(Collectors.toList());
 
         return ResponseEntity.ok(workersDetails);
     }
+
 
 
     // 3. مسح الخادم وإرسال أمر الإغلاق (Remote Shutdown)
