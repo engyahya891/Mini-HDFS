@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class SystemConfigManager {
     private int blockSizeMB = 64;
-    private int replicationFactor = 2;
+    private int replicationFactor = 3;
     private String adminPassword = "admin1234";
 
     public int getBlockSizeMB() { return blockSizeMB; }
