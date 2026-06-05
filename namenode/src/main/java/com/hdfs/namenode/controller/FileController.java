@@ -102,7 +102,8 @@ public class FileController {
         }
 
         // النسخة الثالثة (في رف مختلف)
-        if (replicationFactor >= 3 && availableRacks.size() > 1) {
+        //&& availableRacks.size() > 1
+        if (replicationFactor >= 3 ) {
             String secondaryRack = availableRacks.get(1);
             List<WorkerNode> secondaryRackWorkers = racks.get(secondaryRack);
             Collections.shuffle(secondaryRackWorkers);

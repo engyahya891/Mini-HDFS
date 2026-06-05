@@ -104,7 +104,7 @@ public class NameNodeApplication {
                             int activeCopyCount = workersHavingBlock.size();
 
                             // Eğer 1 kopya varsa (veya hedeflenen 2 kopyadan azsa), replikasyon gerekir!
-                            if (activeCopyCount > 0 && activeCopyCount < 2) {
+                            if (activeCopyCount > 0 && activeCopyCount < 3 ) {
                                 System.out.println("\n⚠️ [Scanner] Eksik kopya tespit edildi: " + blockId + " (Mevcut aktif kopya: " + activeCopyCount + ")");
 
                                 WorkerNode source = workersHavingBlock.get(0); // Hayatta kalan düğüm
