@@ -1,0 +1,8 @@
+@echo off
+title Mini HDFS - NameNode Server
+color 0A
+echo ===================================================
+echo        Starting Mini HDFS NameNode...
+echo ===================================================
+java -jar namenode/target/namenode-1.0-SNAPSHOT.jar
+pause
